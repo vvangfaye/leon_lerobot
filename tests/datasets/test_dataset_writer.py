@@ -18,6 +18,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import av
 import numpy as np
 import pytest
 import torch
@@ -187,6 +188,92 @@ def test_save_multiple_episodes(tmp_path):
 
     assert dataset.meta.total_episodes == 3
     assert dataset.meta.total_frames == total_frames
+
+
+@pytest.mark.parametrize("separate_videos", [False, True])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_episode_video_boundaries(tmp_path, separate_videos, streaming):
+    """Video files and timestamps match episode boundaries in both encoding modes."""
+    video_key = "observation.images.cam"
+    features = {video_key: {"dtype": "video", "shape": (64, 96, 3), "names": None}}
+    # Omitting the option must preserve the default concatenation behavior.
+    options = {"concatenate_videos": False} if separate_videos else {}
+    dataset = LeRobotDataset.create(
+        repo_id=DUMMY_REPO_ID,
+        fps=10,
+        features=features,
+        root=tmp_path / "ds",
+        rgb_encoder=VideoEncoderConfig(vcodec="h264", preset="ultrafast"),
+        streaming_encoding=streaming,
+        **options,
+    )
+    lengths = (2, 3, 4)
+    for episode_index, length in enumerate(lengths):
+        for _ in range(length):
+            dataset.add_frame(
+                {video_key: np.full((64, 96, 3), 40 + 60 * episode_index, np.uint8), "task": "test"}
+            )
+        dataset.save_episode()
+    dataset.finalize()
+
+    loaded = LeRobotDataset(DUMMY_REPO_ID, root=dataset.root, video_backend="pyav")
+    paths = [loaded.root / loaded.meta.get_video_file_path(i, video_key) for i in range(3)]
+    assert len(set(paths)) == (3 if separate_videos else 1)
+    assert set(paths) == set((dataset.root / "videos").rglob("*.mp4"))
+    start = 0
+    for episode_index, length in enumerate(lengths):
+        episode = loaded.meta.episodes[episode_index]
+        offset = 0 if separate_videos else start / 10
+        assert episode[f"videos/{video_key}/from_timestamp"] == pytest.approx(offset)
+        assert episode[f"videos/{video_key}/to_timestamp"] == pytest.approx(offset + length / 10)
+        if separate_videos:
+            with av.open(str(paths[episode_index])) as container:
+                assert sum(1 for _ in container.decode(video=0)) == length
+        for index in range(start, start + length):
+            frame = loaded[index]
+            assert frame["episode_index"].item() == episode_index
+            assert frame[video_key].mean().item() == pytest.approx((40 + 60 * episode_index) / 255, abs=0.02)
+        start += length
+
+
+def test_resume_separate_videos_preserves_existing_packed_video(tmp_path):
+    """New episodes are separate even when older episodes share a video file."""
+    video_key = "observation.images.cam"
+    features = {video_key: {"dtype": "video", "shape": (64, 96, 3), "names": None}}
+    root = tmp_path / "ds"
+    encoder = VideoEncoderConfig(vcodec="h264", preset="ultrafast")
+    dataset = LeRobotDataset.create(
+        repo_id=DUMMY_REPO_ID, fps=10, features=features, root=root, rgb_encoder=encoder
+    )
+    for _ in range(2):
+        for _ in range(3):
+            dataset.add_frame({video_key: np.full((64, 96, 3), 40, np.uint8), "task": "old"})
+        dataset.save_episode()
+    dataset.finalize()
+    original = next((root / "videos").rglob("*.mp4"))
+    original_bytes = original.read_bytes()
+
+    resumed = LeRobotDataset.resume(
+        repo_id=DUMMY_REPO_ID, root=root, rgb_encoder=encoder, concatenate_videos=False
+    )
+    for episode_index in (2, 3):
+        for _ in range(3):
+            resumed.add_frame({video_key: np.full((64, 96, 3), 60 * episode_index, np.uint8), "task": "new"})
+        resumed.save_episode()
+        assert original.read_bytes() == original_bytes
+    resumed.finalize()
+
+    loaded = LeRobotDataset(DUMMY_REPO_ID, root=root, video_backend="pyav")
+    paths = [root / loaded.meta.get_video_file_path(i, video_key) for i in range(4)]
+    assert paths[0] == paths[1] == original
+    assert len(set(paths)) == 3
+    for episode_index in (2, 3):
+        assert loaded.meta.episodes[episode_index][f"videos/{video_key}/from_timestamp"] == 0
+        with av.open(str(paths[episode_index])) as container:
+            assert sum(1 for _ in container.decode(video=0)) == 3
+    for index in range(12):
+        expected = 40 if index < 6 else 60 * (index // 3)
+        assert loaded[index][video_key].mean().item() == pytest.approx(expected / 255, abs=0.02)
 
 
 # ── clear / lifecycle ────────────────────────────────────────────────

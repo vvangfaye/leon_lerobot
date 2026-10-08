@@ -788,6 +788,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         encoder_threads: int | None = None,
         video_files_size_in_mb: int | None = None,
         data_files_size_in_mb: int | None = None,
+        concatenate_videos: bool = True,
     ) -> "LeRobotDataset":
         """Create a new LeRobotDataset from scratch for recording data.
 
@@ -824,6 +825,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 during capture instead of writing images first.
             encoder_queue_maxsize: Max buffered frames per camera when using
                 streaming encoding.
+            concatenate_videos: If ``False``, save a separate video file per
+                episode and camera instead of concatenating episodes.
 
         Returns:
             A new :class:`LeRobotDataset` in write mode.
@@ -871,6 +874,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             encoder_threads=encoder_threads,
             batch_encoding_size=batch_encoding_size,
             streaming_encoder=streaming_enc,
+            concatenate_videos=concatenate_videos,
         )
 
         if image_writer_processes or image_writer_threads:
@@ -899,6 +903,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         encoder_queue_maxsize: int = 30,
         *,
         token: str | bool | None = None,
+        concatenate_videos: bool = True,
     ) -> "LeRobotDataset":
         """Resume recording on an existing dataset.
 
@@ -934,6 +939,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
             encoder_queue_maxsize: Max buffered frames per camera for streaming.
             token: Authentication token used if metadata must be downloaded
                 from the Hub. The token is not retained on the dataset instance.
+            concatenate_videos: If ``False``, save a separate video file per
+                new episode and camera. Existing video files are unchanged.
 
         Returns:
             A :class:`LeRobotDataset` in write mode, ready to append episodes.
@@ -990,6 +997,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             batch_encoding_size=batch_encoding_size,
             streaming_encoder=streaming_enc,
             initial_frames=obj.meta.total_frames,
+            concatenate_videos=concatenate_videos,
         )
 
         if image_writer_processes or image_writer_threads:

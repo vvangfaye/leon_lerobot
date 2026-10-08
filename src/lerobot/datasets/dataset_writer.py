@@ -115,6 +115,7 @@ class DatasetWriter:
         batch_encoding_size: int,
         streaming_encoder: StreamingVideoEncoder | None = None,
         initial_frames: int = 0,
+        concatenate_videos: bool = True,
     ):
         """Initialize the writer with metadata, codec, and encoder config.
 
@@ -134,6 +135,8 @@ class DatasetWriter:
             streaming_encoder: Optional pre-built :class:`StreamingVideoEncoder`
                 for real-time encoding. ``None`` disables streaming mode.
             initial_frames: Starting frame count (non-zero when resuming).
+            concatenate_videos: If ``False``, store each episode in a separate
+                video file for each camera. Applies only to newly saved episodes.
         """
         self._meta = meta
         self._root = root
@@ -142,6 +145,7 @@ class DatasetWriter:
         self._encoder_threads = encoder_threads
         self._batch_encoding_size = batch_encoding_size
         self._streaming_encoder = streaming_encoder
+        self._concatenate_videos = concatenate_videos
 
         # Writer state
         self.image_writer: AsyncImageWriter | None = None
@@ -552,7 +556,10 @@ class DatasetWriter:
             latest_size_in_mb = get_file_size_in_mb(latest_path)
             latest_duration_in_s = latest_ep[f"videos/{video_key}/to_timestamp"][0]
 
-            if latest_size_in_mb + ep_size_in_mb >= self._meta.video_files_size_in_mb:
+            if (
+                not self._concatenate_videos
+                or latest_size_in_mb + ep_size_in_mb >= self._meta.video_files_size_in_mb
+            ):
                 chunk_idx, file_idx = update_chunk_file_indices(chunk_idx, file_idx, self._meta.chunks_size)
                 new_path = self._root / video_path_template.format(
                     video_key=video_key, chunk_index=chunk_idx, file_index=file_idx

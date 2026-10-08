@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nero · 数据与回放</title>
+<style>
+  :root{color-scheme:dark;--bg:#10151e;--panel:#192230;--line:#354458;--text:#e9eff7;--muted:#adbbce;--blue:#83bcfa;--orange:#ffbe79}
+  *{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;padding:22px;background:var(--bg);color:var(--text);font:14px/1.65 system-ui,"Noto Sans CJK SC",sans-serif}h1,h2,h3,p{margin:0 0 10px}h1{font-size:23px}h2{font-size:18px}h3{font-size:15px}a{color:var(--blue)}button,select,input{font:inherit;color:inherit;background:#233249;border:1px solid var(--line);border-radius:6px;padding:7px 10px}button{cursor:pointer}button:hover:not(:disabled){border-color:var(--blue)}button:disabled{opacity:.45;cursor:default}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue);outline-offset:3px}select{max-width:100%}header,.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}header{justify-content:space-between;margin-bottom:18px}.muted{color:var(--muted)}.notice{padding:12px 15px;border:1px solid var(--line);border-radius:8px;margin:12px 0;color:var(--muted)}.warn{color:#ffd29b;white-space:pre-wrap;overflow-wrap:anywhere}.layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:18px;align-items:start}.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px;min-width:0}.sidebar{position:sticky;top:16px}.sidebar select{width:100%;margin:6px 0 12px}.episodes{display:grid;gap:8px;margin:14px 0;max-height:60vh;overflow:auto}.episode{text-align:left;width:100%;white-space:pre-wrap}.episode[aria-current="true"]{border-color:var(--blue);background:#234161}.badge{font-size:12px;border:1px solid var(--line);border-radius:5px;padding:2px 7px}.videos,.plots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.video-card{max-width:540px;min-width:0}.video-card video{display:block;width:100%;aspect-ratio:4/3;background:#080b10;border-radius:7px;object-fit:contain}.video-card h3{margin-bottom:5px}.video-status{font-size:12px;color:var(--muted);margin-top:5px}.timeline{width:100%;padding:0;accent-color:var(--blue);margin:16px 0 8px}#play{background:#24558a;min-width:90px}#position{font-variant-numeric:tabular-nums}#rate{width:90px}.plot{min-width:0}.plot canvas{display:block;width:100%;height:190px;cursor:crosshair;background:#111a27;border-radius:7px}.values{font-size:13px;font-variant-numeric:tabular-nums;color:var(--muted);min-height:2em}.legend-state{color:var(--blue)}.legend-action{color:var(--orange)}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:12px 0}.metric{background:#111a27;padding:9px 12px;border-radius:7px}.metric span{display:block;font-size:12px;color:var(--muted)}.metric strong{font-weight:500;font-variant-numeric:tabular-nums}#events{display:grid;gap:6px;margin:10px 0}#events button{text-align:left;white-space:normal}#report-path{overflow-wrap:anywhere;font-size:12px}.empty{padding:60px 24px;text-align:center;color:var(--muted)}.tasks{overflow-wrap:anywhere}.status{min-height:1.7em}#page-message:empty{display:none}
+  @media(min-width:1600px){body{max-width:1700px;margin:auto}}@media(max-width:900px){.layout{grid-template-columns:210px minmax(0,1fr)}.videos,.plots{grid-template-columns:1fr}.sidebar{position:static}}@media(max-width:600px){body{padding:10px}.layout{grid-template-columns:1fr}.episodes{max-height:240px}.row{gap:8px}.panel{padding:12px}}
+</style>
+<script src="/static/review.js?v=1" defer></script>
+</head>
+<body>
+<header><div><h1>NERO · 数据与回放</h1><div class="muted">已保存视频 · 关节与夹爪曲线 · 采样质量</div></div><a href="/" target="_blank" rel="noopener">打开采集工作台 ↗</a></header>
+<div class="notice">读取本地已收尾的数据集。当前数据集需先在工作台点击“结束采集”并等待完成，再点击这里的“刷新列表”；无需失能机械臂。此页播放保存的视频与数据，不向机械臂发送运动指令。</div>
+<div id="page-message" class="notice warn" role="alert"></div>
+<div class="layout">
+  <aside class="panel sidebar">
+    <div class="row"><h2>本地数据集</h2><button id="refresh">刷新列表</button></div>
+    <label for="dataset">选择数据集</label><select id="dataset" disabled><option>正在加载…</option></select>
+    <div id="dataset-info" class="muted"></div><div id="list-status" class="status warn" aria-live="polite"></div>
+    <div class="episodes" id="episodes" aria-label="已保存的集"></div>
+    <div class="row"><button id="list-prev" disabled>上一页</button><span id="list-page" class="muted"></span><button id="list-next" disabled>下一页</button></div>
+    <div class="notice">最新集在前。集号从 1 开始显示，原始 episode_index 从 0 开始。质量标记只反映节拍报告，不代表动作任务成功。</div>
+  </aside>
+  <main>
+    <div id="empty" class="panel empty">选择数据集，再点击一集开始查看。</div>
+    <div id="episode-content" hidden>
+      <section class="panel">
+        <div class="row"><h2 id="episode-title"></h2><span id="quality-badge" class="badge"></span></div>
+        <div id="episode-info" class="muted"></div><p id="tasks" class="tasks"></p>
+        <div id="videos" class="videos"></div>
+        <input id="timeline" class="timeline" type="range" min="0" max="0" value="0" step="1" aria-label="回放帧位置" disabled>
+        <div class="row"><button id="play" disabled>播放</button><button id="frame-prev" disabled>上一帧</button><button id="frame-next" disabled>下一帧</button><label>速度 <select id="rate"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label><span id="position"></span></div>
+        <div id="play-status" class="status muted" aria-live="polite"></div>
+        <div class="notice">时间轴按保存的 FPS / 帧号联动，拖动可定位同一时刻的视频、关节与夹爪。浏览器视频跳转可能有解码延迟；这不代表相机曝光与机械臂反馈已硬件同步。关节显示 °、夹爪显示 mm，文件仍保持 rad / m。</div>
+      </section>
+      <section class="panel">
+        <div class="row"><h2>状态与动作</h2><label>查看关节 <select id="joint"><option value="0">J1</option><option value="1">J2</option><option value="2">J3</option><option value="3">J4</option><option value="4">J5</option><option value="5">J6</option><option value="6">J7</option></select></label></div>
+        <p class="muted"><span class="legend-state">实线：从臂反馈 state</span> · <span class="legend-action">虚线：发给从臂的目标 action</span>。点击曲线可跳转；两者存在差值并不直接等于故障。</p>
+        <div id="plots" class="plots"></div>
+      </section>
+      <section class="panel">
+        <h2>采样节拍与质量</h2><div id="quality-warnings" class="warn"></div><div id="metrics" class="metrics"></div><div id="camera-quality" class="muted"></div><div id="report-path" class="muted"></div>
+        <p class="muted">实测 FPS 按有效采样起点间隔计算；帧龄按主机接收时间计算。主动结束的短片段不会仅因时长不足标记异常。缺少或损坏的报告不能证明数据质量合格。</p>
+        <h3 id="events-title">异常时刻</h3><div class="muted">点击定位到已保存的帧；未写入的失败采样定位到相邻有效帧，同时显示原始主机采样时间。</div>
+        <div id="events"></div><div class="row"><button id="event-prev" disabled>上一页</button><span id="event-page" class="muted"></span><button id="event-next" disabled>下一页</button></div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -176,3 +176,8 @@ outputs/
 *.urdf
 *.xml
 *.part
+
+# --- nero 本地产物 ---
+Log/
+examples/nero_to_nero/collect_config.json
+examples/nero_to_nero/collect_config.platform.json

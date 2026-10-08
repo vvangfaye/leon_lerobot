@@ -598,6 +598,15 @@ class OpenCVCamera(Camera):
             RuntimeError: If the camera is connected but has not captured any frames yet.
         """
 
+        return self.read_latest_with_timestamp(max_age_ms)[0]
+
+    def read_latest_with_timestamp(self, max_age_ms: int = 500) -> tuple[NDArray[Any], float, float]:
+        """Return an atomic frame/timestamp snapshot and its age in milliseconds.
+
+        The timestamp uses the host's ``perf_counter`` when the capture thread
+        receives and processes the image; it is not a sensor exposure timestamp.
+        Consecutive calls can return the same timestamp and frame.
+        """
         if self.thread is None or not self.thread.is_alive():
             raise RuntimeError(f"{self} read thread is not running.")
 
@@ -614,7 +623,7 @@ class OpenCVCamera(Camera):
                 f"{self} latest frame is too old: {age_ms:.1f} ms (max allowed: {max_age_ms} ms)."
             )
 
-        return frame
+        return frame, timestamp, age_ms
 
     def disconnect(self) -> None:
         """

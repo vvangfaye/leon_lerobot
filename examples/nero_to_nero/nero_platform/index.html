@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nero 数据采集工作台</title>
+<style>
+ *{box-sizing:border-box} [hidden]{display:none!important}
+ :root{color-scheme:dark;--bg:#10151e;--panel:#192230;--line:#303e51;--text:#e9eff7;--muted:#a2b1c5;--blue:#83bcfa}
+ body{font-family:system-ui,"Noto Sans CJK SC",sans-serif;margin:0;padding:18px;background:var(--bg);color:var(--text);font-size:13px;line-height:1.6}
+ .topbar{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:16px}
+ h1{font-size:21px;letter-spacing:.04em;margin:0} .subtitle{color:var(--muted);font-size:12px}
+ .voice-panel{max-width:630px;text-align:right} .voice-controls{display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap}
+ .voice-controls label{display:inline-flex;align-items:center;gap:5px;margin:0} #voice-volume{width:86px} #voice-status{margin:3px 0 0;min-height:19px}
+ .workspace{display:grid;grid-template-columns:minmax(260px,1.25fr) minmax(175px,.85fr) minmax(185px,.9fr) minmax(340px,1.6fr) minmax(220px,1.05fr);gap:12px;align-items:stretch}
+ #left{min-width:0} .column{min-height:640px}.section-head{flex-wrap:wrap}
+ .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+ .section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+ h2{font-size:15px;color:var(--text);margin:0} h3{font-size:13px;margin:0 0 8px}
+ .step{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border-radius:7px;background:#273d58;color:var(--blue);margin-right:7px;font-size:12px}
+ .badge{display:inline-block;padding:2px 9px;border-radius:20px;color:var(--blue);background:#22364e;font-size:12px;white-space:nowrap}
+ .badge.recording{color:#92e9c2;background:#164737}.badge.error{color:#ffc483;background:#543826}
+ .badge.review{color:#ffe39a;background:#4c4326}
+ .config-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:10px 12px} .field{min-width:0}.span-2,.span-3{grid-column:auto}
+ .config-grid input,.config-grid select{width:100%} .config-footer{margin-top:10px}
+ .stage{padding:14px}.stage .section-head{margin-bottom:14px}.stage-note{margin:7px 0 12px;font-size:12px;color:var(--muted);line-height:1.7}
+ .action{display:block;width:100%;padding:11px 8px;margin:8px 0;font-weight:600}
+ .divider{border:0;border-top:1px solid var(--line);margin:20px 0}
+ .checklist{margin:8px 0 16px;padding:10px;border-radius:8px;background:#111c2a}.checklist div{font-size:12px;margin:4px 0;overflow-wrap:anywhere}
+ #arms{max-height:460px;overflow-y:auto;padding-right:4px}#cams{max-height:360px;overflow-y:auto}.cam img{max-height:125px}
+ .armrow{padding:13px 0;border-bottom:1px solid var(--line)}.armrow:last-child{border-bottom:0;padding-bottom:0}
+ .armhead{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.ch{font-weight:700;color:var(--blue);margin-right:auto}
+ .arm-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}.arm-actions button{padding:6px 3px;font-size:12px}
+ .hardware{display:grid;gap:3px;margin:8px 0;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+ .st{font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin-top:6px}
+ .muted,.record-detail{color:var(--muted);font-size:12px;line-height:1.7;overflow-wrap:anywhere}.record-detail{margin:5px 0}
+ details{margin-top:10px}summary{cursor:pointer;color:var(--muted);font-size:12px;user-select:none}details[open]>summary{margin-bottom:9px}
+ .result-row{padding:8px 0;border-bottom:1px solid var(--line);font-size:12px;overflow-wrap:anywhere}.result-row button{margin-top:6px;font-size:12px}
+ #close-result{background:#111c2a;padding:10px;margin-top:12px;border-radius:8px}#close-result h2{font-size:13px}
+ button{padding:7px 11px;border:1px solid transparent;border-radius:7px;cursor:pointer;font-family:inherit;font-size:13px;background:#344459;color:#f6f9ff;line-height:1.5}
+ button:hover:enabled{filter:brightness(1.16)}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+ .go{background:#237451}.stop{background:#98433f}.connect{background:#2c5c8d}.save{background:#396fa5}.quiet-danger{color:#f1b5ad;background:transparent;border-color:#704641}
+ button:disabled{opacity:.4;cursor:not-allowed}
+ select,input{padding:7px;background:#111a27;color:var(--text);border:1px solid #3a4c64;border-radius:6px;font-family:inherit;font-size:13px;min-width:0}
+ label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px}.cfg-label{display:block;font-size:12px;font-weight:700;color:var(--blue);margin:8px 0 4px}.row{display:flex;gap:8px}.row button{flex:1}
+ .cams{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}.cam{min-width:0;padding:10px;background:#111a27;border-radius:8px}.cam select{width:100%;margin-top:8px}
+ .cam img{width:100%;aspect-ratio:4/3;object-fit:contain;background:#080e16;border-radius:6px}.camera-title{color:var(--blue);font-weight:600}
+ .cam img.rgbd-pair{aspect-ratio:auto;max-height:none}.rgbd-labels{display:grid;grid-template-columns:1fr 1fr;text-align:center;font-size:12px;color:var(--muted);margin-top:6px}.preview-retry{margin:6px 0;font-size:12px}
+ .focus-controls{border-top:1px solid var(--line);margin-top:9px;padding-top:8px}.focus-choice{display:inline-flex;align-items:center;gap:4px;margin-right:10px;color:var(--text)}.focus-choice.disabled{opacity:.45}.focus-controls input[type=range]{width:100%;padding:0;accent-color:var(--blue);margin:6px 0}.focus-controls input[type=checkbox]{accent-color:var(--blue)}.focus-value{font-variant-numeric:tabular-nums}
+ .live-cameras{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:12px 0}.live-card{width:100%;max-width:260px;justify-self:center}.notice{padding:10px;background:#13202f;border-left:3px solid #6594c6;border-radius:4px;font-size:12px;line-height:1.8;margin:10px 0}.notice.danger{border-color:#e7a46b;background:#302820}.save-footer{margin-top:20px;padding-top:12px;border-top:1px solid var(--line)}.episode-actions{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+ .live-card{min-width:0;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#0b111b}
+ .live-card header{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;font-size:12px}
+ .live-view{position:relative;aspect-ratio:4/3;background:#080e16}.live-view img{position:absolute;width:100%;height:100%;object-fit:contain}
+ .preview-placeholder{position:absolute;inset:0;display:grid;place-content:center;color:var(--muted);padding:16px;text-align:center;font-size:12px}
+ .camera-id{padding:7px 10px;font:10px/1.5 monospace;color:#8fa1b9;overflow-wrap:anywhere}
+ #preview-mode{font-size:11px;color:var(--muted)} #rec-metrics{font-size:16px;font-weight:600;color:var(--text);margin:10px 0 0}
+ #rec-progress{width:100%;height:7px;margin:12px 0;accent-color:#67d5a4}#rec-status{font-size:14px;font-weight:600;min-height:24px}
+ #start-reminder{background:#223c36;border:1px solid #3c715b;padding:10px;border-radius:8px;margin-top:12px}#start-reminder .row{flex-direction:column}
+ .warn{color:#ffc080;overflow-wrap:anywhere;font-size:12px}.warn:not(:empty){margin:8px 0}#rec-error:not(:empty){padding:10px;background:#422f28;border-radius:6px}.can-cmd{display:block;white-space:pre;font-family:monospace;font-size:12px;background:#0b111b;padding:8px;border-radius:6px;overflow-x:auto;margin:6px 0 0;user-select:all}.copy-btn{margin-left:6px;padding:2px 8px;font-size:12px;border:1px solid #3a4c64;background:#111a27;color:var(--text);border-radius:6px;cursor:pointer}.copy-btn:hover{filter:brightness(1.16)}
+ #hint{font-size:12px;color:var(--muted);line-height:1.8}
+ dialog{background:#202c3d;color:var(--text);border:1px solid #f6ad55;border-radius:12px;padding:24px;max-width:560px;width:calc(100% - 48px)}
+ dialog::backdrop{background:rgba(0,0,0,.75)}dialog h2{font-size:20px;color:#ffc080}#safety-text{white-space:pre-line;line-height:1.8;margin:16px 0}#safety-audio{min-height:3em}dialog .row{margin-top:12px}
+ @media(max-width:1280px){.workspace{grid-template-columns:260px minmax(170px,1fr) minmax(185px,1fr)}#left{grid-row:span 2}#capture-area{grid-column:2/4}#finish-area{grid-column:2/4}.column{min-height:0}}
+ @media(max-width:800px){body{padding:10px}.topbar{align-items:flex-start;flex-direction:column;gap:10px}.voice-panel{text-align:left}.voice-controls{justify-content:flex-start}.workspace{grid-template-columns:1fr 1fr}#left{grid-row:auto;grid-column:1/-1}#capture-area,#finish-area{grid-column:1/-1}#arms{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.cams{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}}
+ @media(max-width:480px){.workspace{grid-template-columns:1fr}#config-area,#prepare-area{grid-column:1/-1}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div><h1>NERO <span style="font-weight:400">数据采集工作台</span></h1><div class="subtitle">设备检查 → 配置 → 准备 → 录制 → 保存与失能 · <a href="/review" target="_blank" rel="noopener" style="color:var(--blue)">数据与回放 ↗</a></div></div>
+  <div class="voice-panel">
+    <div class="voice-controls">
+      <label><input id="voice-enabled" type="checkbox" checked onchange="changeVoice()">语音播报</label>
+      <select id="voice-name" aria-label="播报音色" onchange="changeVoice(true)"><option value="xiaoxiao">晓晓 · 女声</option><option value="yunxi">云希 · 男声</option></select>
+      <label>音量 <input id="voice-volume" aria-label="播报音量" type="range" min="0" max="100" value="85" oninput="changeVoice()"></label>
+      <button onclick="previewVoice()">试听</button>
+    </div>
+    <div id="voice-status" class="record-detail" aria-live="polite">声音从打开此页面的电脑播放。</div>
+  </div>
+</header>
+<div id="system-warning" class="notice warn" role="alert" hidden></div>
+<div id="connection-status" class="notice warn" role="status" hidden></div>
+<main class="workspace">
+  <aside id="left" class="panel column">
+    <div class="section-head"><h2>设备检查</h2><button id="btn-redetect-can" onclick="redetectCan()" title="重新扫描系统里的 CAN 接口，通道表会按实际检测结果刷新">重新检测 CAN</button><span id="device-count" class="badge">读取中</span></div>
+    <div id="can-down-warning" class="notice warn" role="alert" hidden></div>
+    <div class="muted">连接只建立通信；先查看状态，再按需微动测试。机械臂列表可上下滚动。</div>
+    <div id="arms"></div>
+    <div class="notice">通信、控制模式、关节和夹爪使能、故障分别显示。“未知”表示未收到完整的新反馈，不能据此判断已失能。关闭脚本不会自动失能；重启后先连接并检查状态。</div>
+
+    <hr class="divider">
+        <details id="camera-settings" open><summary>相机分配区 · 检测设备并选择用途</summary>
+          <div class="row"><button id="btn-detect-depth" onclick="detectCameras('depth')">检测深度相机</button><button id="btn-detect-rgb" onclick="detectCameras('rgb')">检测 RGB 相机</button></div>
+          <div id="camera-detection" class="record-detail" role="status" aria-live="polite">深度检测支持奥比 Femto、Azure Kinect、RealSense。</div>
+          <div class="muted">所有已检测设备统一编号，编号仅供识别；用下拉框选择用途（左 / 右 / 头部 / 未用）。Femto、Azure Kinect、RealSense 支持 RGBD 并排预览与录制，深度对齐到同角色 RGB。分配后读取分辨率，再选择采集尺寸与保存缩放；RealSense 列出设备实际支持的 RGBD 帧率。Azure Kinect 需要 USB 3.0，支持 5 / 15 / 30 FPS，4096×3072 最高 15 FPS。进入会话后配置锁定，修改前请先结束采集。</div>
+          <div class="cams" id="cams"></div>
+          <div id="missing-cameras" class="record-detail"></div>
+          <div id="active-cameras" class="record-detail"></div>
+        </details>
+    <div class="save-footer"><button class="save action" id="btn-save-devices" onclick="save()">保存配置</button><div class="muted">保存机械臂角色、相机角色及右侧所有采集参数。</div></div>
+  </aside>
+    <section class="panel column" id="config-area">
+      <div class="section-head"><h2>数据集配置区</h2></div>
+      <div class="config-grid" oninput="markConfigDirty()" onchange="markConfigDirty()">
+        <div class="field span-3"><label for="repo_id">数据集名</label><input id="repo_id" value="nero/platform_step1" placeholder="nero/任务名称"></div>
+        <div class="field span-3"><label for="task">任务描述</label><input id="task" value="nero teleop"></div>
+        <div class="field span-3"><label for="pair_mode">机械臂采集模式</label><select id="pair_mode" onchange="updatePairSummary(); refresh()"><option value="single">单对主从臂 · 8 维</option><option value="dual">左右双对 · 16 维</option></select></div>
+        <div class="field" id="single-leader"><label for="leader_label">主臂</label><select id="leader_label"><option>主左</option><option>主右</option></select></div>
+        <div class="field" id="single-follower"><label for="follower_label">从臂</label><select id="follower_label"><option>从左</option><option>从右</option></select></div>
+        <section class="notice span-3" aria-labelledby="record-cameras-title">
+          <h3 id="record-cameras-title">录制相机</h3>
+          <div class="config-grid">
+            <div class="field"><label for="record_camera">录制角色</label><select id="record_camera" onchange="updateCameraSummary(); voice.say('camera_changed')"><option value="right">右侧（附带已分配头部）</option><option value="left">左侧（附带已分配头部）</option><option value="both" selected>左侧＋右侧（附带已分配头部）</option></select></div>
+          </div>
+          <div id="record-camera-summary" class="record-detail" aria-live="polite"></div>
+          <hr class="divider">
+          <h3>分辨率与保存缩放</h3>
+          <button id="btn-resolutions" type="button" onclick="refreshResolutions()">读取所选设备分辨率</button>
+          <div class="muted">先在左侧分配设备，再读取支持的全部分辨率。按目标 FPS 标出可用档位；读取不会启动录制。</div>
+          <div class="config-grid">
+            <div class="field"><label for="resolution-left" class="cfg-label">左相机 · 采集分辨率</label><select id="resolution-left" onchange="changeResolution('left')"><option value="640x480">640×480 · 当前配置</option></select><label for="scale-left" class="cfg-label">保存缩放</label><select id="scale-left" onchange="changeScale('left')"><option value="1">原尺寸</option></select><div id="resolution-output-left" class="record-detail"></div><div id="resolution-info-left" class="muted">待读取设备支持的分辨率</div></div>
+            <div class="field"><label for="resolution-right" class="cfg-label">右相机 · 采集分辨率</label><select id="resolution-right" onchange="changeResolution('right')"><option value="640x480">640×480 · 当前配置</option></select><label for="scale-right" class="cfg-label">保存缩放</label><select id="scale-right" onchange="changeScale('right')"><option value="1">原尺寸</option></select><div id="resolution-output-right" class="record-detail"></div><div id="resolution-info-right" class="muted">待读取设备支持的分辨率</div></div>
+            <div class="field"><label for="resolution-head" class="cfg-label">头部相机 · 采集分辨率</label><select id="resolution-head" onchange="changeResolution('head')"><option value="1280x720">1280×720 · 当前配置</option></select><label for="scale-head" class="cfg-label">保存缩放（RGB、深度共用）</label><select id="scale-head" onchange="changeScale('head')"><option value="1">原尺寸</option></select><div id="resolution-output-head" class="record-detail"></div><div id="resolution-info-head" class="muted">分配头部相机后，可读取分辨率</div></div>
+          </div>
+          <div class="muted">缩小 1 次＝宽高各 1/2，缩小 2 次＝各 1/4；逐次减半，到宽 ≤640 或高 ≤480 为止，不强制裁成 640×480。编码边长向下取偶数。RGBD 相机先完成 RGB/深度对齐，再共同缩放，深度仍保存米值。</div>
+          <div class="muted">按所选角色录制：普通相机保存 RGB；RGBD 相机同时保存 RGB 和对应角色的深度，各算一路数据。更改录制字段或保存尺寸请使用新数据集名。</div>
+          <div id="depth-storage" class="warn" hidden></div>
+        </section>
+        <div class="field"><label for="fps">数据采样 FPS</label><input id="fps" type="number" min="1" value="30" onchange="renderResolutionControls(); updateTeleopSummary()"></div>
+        <div class="field"><label for="episode_sec">每集时长 / 秒</label><input id="episode_sec" type="number" min="0.1" step="0.1" value="60"></div>
+        <div class="field span-3"><label for="follow_motion_mode">遥操作模式</label><select id="follow_motion_mode" onchange="updateTeleopSummary()"><option value="js">分离控制（低延迟 move_js）</option><option value="j">底层平滑（高延迟 move_j）</option></select></div>
+        <div class="field span-3"><label for="control_frequency">控制频率</label><select id="control_frequency" onchange="updateTeleopSummary()"><option value="capture">跟随采集</option><option value="50">50 Hz</option><option value="100" selected>100 Hz</option><option value="150">150 Hz</option><option value="200">200 Hz</option></select><div class="muted">两个模式共用此频率设置。“跟随采集”按数据采样 FPS 下发目标；固定频率分别调度控制和采样。开始采集后锁定，结束采集后可修改。</div></div>
+        <div class="notice span-3" id="teleop-summary"></div>
+      </div>
+      <div class="notice">相机选择与机械臂左右独立。续录必须保持采集模式、FPS、关节顺序、相机字段和保存尺寸一致；改变保存分辨率、单对与双对切换时使用不同数据集名。开始采集后配置锁定，结束采集后可修改。</div>
+      <div class="record-detail" id="pair-summary"></div>
+      <div class="record-detail" id="camera-summary"></div>
+      <div class="save-footer"><div class="muted" id="config-status">已加载配置</div><button class="save action" id="btn-save" onclick="save()">保存配置</button><div class="muted">开始采集前也会自动保存全部配置。</div></div>
+    </section>
+    <section class="panel stage column" id="prepare-area">
+      <div class="section-head"><h2><span class="step">01</span>开始采集</h2></div>
+      <div class="checklist"><div id="ready-pair">主从臂：等待状态</div><div id="ready-camera">相机：等待分配</div><div id="ready-state">等待设备检查</div></div>
+      <button class="connect action" id="btn-home" onclick="returnHome()" disabled>主从臂返回默认位置</button>
+      <div class="notice">主从臂正在返回默认位置时，请注意周边环境。目标为第二关节 90°，其余关节 0°；先从臂、后主臂，依次回位。双对顺序为从左、从右、主左、主右。请松开所有主臂，避开全部运动路径。回位后保持使能和夹爪状态，不会自动失能。</div>
+      <div id="home-status" class="record-detail" aria-live="polite"></div>
+      <div class="notice">回默认位置是可选操作。准备每一集时可以使用主臂当前位置，不需要手动将主臂对齐从臂；确认后由从臂平缓对齐。</div>
+      <hr class="divider">
+      <button class="go action" id="btn-session-start" onclick="openSession()" disabled>开始采集</button>
+      <div class="notice">开始采集会准备数据集和所选相机、使能主从臂并切换采集模式。请先确认设备状态，扶稳机械臂并检查周边环境。此步骤不自动录制；准备好后在采集区点击“准备一集”。</div>
+      <div class="record-detail" id="session-status" aria-live="polite"></div>
+      <div id="gate" class="warn"></div>
+    </section>
+      <section class="panel stage column" id="capture-area">
+        <div class="section-head"><h2><span class="step">02</span>采集区</h2><span id="phase-badge" class="badge">待机</span></div>
+        <div class="status" id="rec-status" aria-live="polite">等待加载状态…</div>
+        <div class="live-cameras" id="live-cameras">
+          <article class="live-card" id="live-left" hidden><header><strong>左相机</strong><span id="live-label-left"></span></header><div class="live-view"><img id="live-image-left" alt="左相机当前画面" hidden><div class="preview-placeholder" id="live-empty-left">等待画面</div></div><div class="camera-id" id="live-id-left"></div></article>
+          <article class="live-card" id="live-right" hidden><header><strong>右相机</strong><span id="live-label-right"></span></header><div class="live-view"><img id="live-image-right" alt="右相机当前画面" hidden><div class="preview-placeholder" id="live-empty-right">等待画面</div></div><div class="camera-id" id="live-id-right"></div></article>
+          <article class="live-card" id="live-head" hidden><header><strong>头部 RGB</strong><span id="live-label-head"></span></header><div class="live-view"><img id="live-image-head" alt="头部 RGB 当前画面" hidden><div class="preview-placeholder" id="live-empty-head">开启采集后显示</div></div><div class="camera-id" id="live-id-head"></div></article>
+          <article class="live-card" id="live-left_depth" hidden><header><strong>左深度</strong><span id="live-label-left_depth"></span></header><div class="live-view"><img id="live-image-left_depth" alt="左深度伪彩色" hidden><div class="preview-placeholder" id="live-empty-left_depth">开启采集后显示</div></div><div class="camera-id">与左 RGB 对齐。固定 0～10 m 色阶：近蓝、远红，无效值黑色。保存单通道深度，伪彩色仅供查看。</div></article>
+          <article class="live-card" id="live-right_depth" hidden><header><strong>右深度</strong><span id="live-label-right_depth"></span></header><div class="live-view"><img id="live-image-right_depth" alt="右深度伪彩色" hidden><div class="preview-placeholder" id="live-empty-right_depth">开启采集后显示</div></div><div class="camera-id">与右 RGB 对齐。固定 0～10 m 色阶：近蓝、远红，无效值黑色。保存单通道深度，伪彩色仅供查看。</div></article>
+          <article class="live-card" id="live-head_depth" hidden><header><strong>头部深度</strong><span id="live-label-head_depth"></span></header><div class="live-view"><img id="live-image-head_depth" alt="头部深度伪彩色" hidden><div class="preview-placeholder" id="live-empty-head_depth">开启采集后显示</div></div><div class="camera-id">与头部 RGB 对齐。固定 0～10 m 色阶：近蓝、远红，无效值黑色。保存单通道深度，伪彩色仅供查看。</div></article>
+        </div>
+        <div id="preview-mode">选择录制相机后显示画面。</div>
+        <div id="camera-focus-warning" class="warn" hidden></div>
+        <div class="episode-actions"><button class="go action" id="btn-start" onclick="start()" disabled>① 准备一集 (q)</button><button class="connect action" id="btn-stop" onclick="stop()" disabled>结束一集 (s)</button></div>
+        <div class="notice">准备一集后，保持所选主臂静止，确认所有从臂运动路径无障碍；确认后从臂平缓对齐各自主臂当前位置。双对先对齐左侧、再对齐右侧，全部到位并复核后才开始同一集，对齐过程不计入数据。结束一集保存整个片段，两侧一起停止跟随并保持使能，可继续录下一集。</div>
+        <div id="start-reminder" hidden>
+          <div class="record-detail">建议主臂尽量回到默认位置（第二关节 90°，其余 0°），也可使用当前位置。双对模式请保持两条主臂静止，直到全部对齐完成；确认两侧路径和臂间空间均无障碍。</div>
+          <div class="record-detail">可直接确认跳过准备语音，继续从臂对齐并录制。</div>
+          <div class="row"><button class="go" id="btn-confirm-start" onclick="confirmStart()">② 确认并继续（跳过语音）</button><button onclick="cancelStart()">取消</button></div>
+        </div>
+        <button class="action" id="btn-cancel-prepare" onclick="stop()" hidden disabled>取消准备 / 对齐 (s)</button>
+        <div id="rec-metrics"></div>
+        <progress id="rec-progress" value="0" max="60" aria-label="本集录制时长"></progress>
+        <div class="record-detail" id="rec-fps"></div>
+        <div class="record-detail" id="rec-control"></div>
+        <div class="record-detail" id="rec-motion-mode"></div>
+        <div class="warn" id="rec-warning"></div><div class="warn" id="rec-error" role="alert"></div>
+        <div class="warn" id="timing-warning"></div>
+        <section class="notice" aria-labelledby="timing-title"><h3 id="timing-title">采样节拍详情</h3><div class="record-detail" id="rec-timing"></div></section>
+        <div class="record-detail" id="rec-total"></div>
+        <div class="record-detail" id="last-summary" aria-live="polite"></div>
+        <section class="notice" aria-labelledby="last-title"><h3 id="last-title">最近保存详情与节拍报告</h3><div class="record-detail" id="rec-last"></div></section>
+      </section>
+    <section class="panel stage column" id="finish-area">
+      <div class="section-head"><h2><span class="step">03</span>结束采集</h2></div>
+      <button class="connect action" id="btn-home-end" onclick="returnHome('btn-home-end')" disabled>主从臂返回默认位置</button>
+      <div class="notice">可先结束一集、等待保存完成，再让主从臂依次回位。第二关节 90°，其余 0°；先从臂、后主臂。请松开主臂并确认运动路径无障碍，注意周边环境。回位后仍保持使能及夹爪状态。</div>
+      <div id="home-status-end" class="record-detail" aria-live="polite"></div>
+      <hr class="divider">
+      <button class="connect action" id="btn-end-session" onclick="endSession()" disabled>结束采集</button>
+      <div class="notice">结束当前录制并等待数据和视频保存、完成数据收尾、恢复相机预览。不自动回位，不发送失能指令，机械臂仍可能保持使能；此按钮需要等待保存，不是急停。</div>
+      <div id="end-status" class="record-detail" aria-live="polite"></div>
+      <hr class="divider">
+      <button class="stop action" id="btn-disconnect" onclick="disconnect()" disabled>机械臂失能</button>
+      <div class="notice danger"><strong>机械臂即将失能，失去支撑后可能坠落。</strong>请用手托住主从机械臂，或者增加缓冲垫子，并放稳夹持物。结束采集后，再点击此按钮；弹窗确认后只原地失能所选主从臂及已接入夹爪，不自动回位，不重复收尾数据。</div>
+      <div id="disable-status" class="record-detail" aria-live="polite"></div>
+      <div id="close-result" hidden aria-live="polite">
+        <h2>数据收尾与失能结果</h2><div class="muted">数据、关节、夹爪分别确认；未执行失能不等于已失能。仅重试未完成项。</div>
+        <div class="result-row"><span id="close-data"></span><button id="retry-data" onclick="retryClose('data')" hidden>重试数据收尾</button></div>
+        <div id="close-arms"></div><div class="record-detail" id="close-preview"></div><div class="warn" id="close-warnings"></div>
+      </div>
+      <div class="notice">关闭或刷新网页不会结束后台采集，也不会自动失能；操作尚未结束、机械臂仍使能或状态未确认时，浏览器会尝试提醒离开。Ctrl+C 退出脚本仍保持使能。请等待所选主臂、从臂的关节和夹爪均确认失能后，再松手。未知或超时不代表已经失能。</div>
+    </section>
+</main>
+<section id="hint" aria-labelledby="hint-title"><h3 id="hint-title">操作说明与快捷键</h3>左侧连接并检查机械臂、分配相机 → 选择单对或左右双对模式、设置数据集并保存配置 → 开始采集 → 准备一集 → 确认从臂对齐并录制 → 结束一集保存 → 按需返回默认位置 → 结束采集 → 托稳后单独确认机械臂失能。<br>q：准备一集；s：取消准备 / 对齐，或结束整集。单对使用所选的两条臂；左右双对需要四个独立通道，固定主左→从左、主右→从右。两侧共用一个软件采样节拍，数据固定左 8 维＋右 8 维，不代表硬件同步。页面预览约 2 FPS，实际采样节拍单独显示。</section>
+<dialog id="safety-dialog" aria-labelledby="safety-title" aria-describedby="safety-text" oncancel="event.preventDefault(); finishSafety(false)" onclose="if(!this.open) finishSafety(false)">
+  <h2 id="safety-title"></h2>
+  <div id="safety-text"></div>
+  <div id="safety-audio" class="record-detail" aria-live="polite"></div>
+  <button id="safety-replay" onclick="replaySafety()">重新播放提醒</button>
+  <div class="row">
+    <button id="safety-cancel" onclick="finishSafety(false)" autofocus>取消</button>
+    <button id="safety-confirm" class="stop" onclick="finishSafety(true)" disabled>请先听完提醒</button>
+  </div>
+</dialog>
+<script src="/static/voice.js?v=5"></script>
+<script src="/static/camera_focus.js?v=1"></script>
+<script>
+const VOICE_MANIFEST = /*VOICE_MANIFEST*/{};
+const voice = new NeroVoice(VOICE_MANIFEST, text=>{ document.getElementById("voice-status").textContent = text; });
+let safetyPending = null;
+let CH = ["can0","can1","can2","can3"];
+const DEFAULT_RESOLUTIONS = {left:{width:640,height:480,scale:1},right:{width:640,height:480,scale:1},head:{width:1280,height:720,scale:1}};
+let cameraResolution = JSON.parse(JSON.stringify(DEFAULT_RESOLUTIONS));
+let resolutionProfiles = {};
+let resolutionsPending = false;
+const LABELS = ["未分配","主左","主右","从左","从右"];
+let CAMERAS = {}, MAP = {};
+let cameraDetectionPending = false;
+function assignedId(role){ const ids = Object.keys(MAP).filter(id=>MAP[id] === role); return ids.length === 1 ? ids[0] : ""; }
+function cameraType(id){ return CAMERAS[id]?.type || "rgb"; }
+const CAMERA_ROLES = ["left","right","head"];
+const ROLE_NAMES = {left:"左",right:"右",head:"头部"};
+const LIVE_STREAMS = CAMERA_ROLES.flatMap(role=>[role,role+"_depth"]);
+function selectedRoles(){
+  const selection = document.getElementById("record_camera").value;
+  if(selection === "all") return CAMERA_ROLES.filter(role=>assignedId(role));
+  const roles = selection === "both" ? ["left","right"] : [selection];
+  if(selection !== "head" && assignedId("head")) roles.push("head");
+  return roles;
+}
+function depthRoles(){ return selectedRoles().filter(role=>cameraType(assignedId(role)) === "rgbd"); }
+function streamLabel(name){ const role = name.replace(/_depth$/, ""); return (ROLE_NAMES[role] || role)+(name.endsWith("_depth") ? "深度" : " RGB"); }
+let lastConnected = false;
+let homeRequestPending = false;
+let disableRequestPending = false;
+let sessionRequestPending = false;
+let endRequestPending = false;
+let startRequestPending = false;
+let startReminderOpen = false;
+let stopRequestPending = false;
+const armRequestPending = new Set();
+let commandError = "";
+let latestStatus = null;
+let configRevision = 0;
+let previewSequence = 0;
+const depthPreviewPending = new Set();
+const depthPreviewErrors = new Map();
+let refreshRequested = 0;
+let refreshApplied = 0;
+let configLoaded = false;
+let camerasLoaded = false;
+let statusAvailable = false;
+let initializationError = "";
+const cameraFocus = new NeroCameraFocus({post:(url,data)=>post(url,data), refresh:()=>refresh()});
+
+function pageReady(){ return configLoaded && camerasLoaded && statusAvailable; }
+
+// 只对查询设置超时；超时重试不重发任何设备操作或保存指令。
+async function getJson(url){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 5000);
+  try{
+    const response = await fetch(url, {signal:controller.signal, cache:"no-store"});
+    if(!response.ok){
+      let data = {};
+      try{ data = await response.json(); }catch{}
+      throw new Error(data.msg || `HTTP ${response.status}`);
+    }
+    return await response.json();
+  }catch(error){
+    if(controller.signal.aborted) throw new Error("读取超时（5 秒）");
+    throw error;
+  }finally{ clearTimeout(timer); }
+}
+
+function lockUnavailableControls(){
+  cameraFocus.lock();
+  document.getElementById("btn-resolutions").disabled = true;
+  document.querySelectorAll("#config-area input, #config-area select, #cams select, #missing-cameras select, #arms select, #arms .device-command").forEach(control=>{ control.disabled = true; });
+  for(const id of ["btn-detect-depth","btn-detect-rgb","btn-home","btn-home-end","btn-session-start","btn-start","btn-confirm-start","btn-end-session","btn-disconnect","btn-save","btn-save-devices","retry-data"]){
+    document.getElementById(id).disabled = true;
+  }
+  for(const ch of CH){
+    for(const action of ["move","home","retry"]) document.getElementById(action+"-"+ch).disabled = true;
+  }
+  if(!latestStatus) document.getElementById("btn-stop").disabled = true;
+}
+
+function showConnectionStatus(message){
+  const banner = document.getElementById("connection-status");
+  banner.hidden = !message;
+  banner.textContent = message;
+}
+
+function markConfigDirty(){
+  configRevision++;
+  document.getElementById("config-status").textContent = "有未保存修改";
+  updateDepthStorageHint();
+}
+
+function updateDepthStorageHint(){
+  const target = document.getElementById("depth-storage");
+  target.hidden = !depthRoles().length;
+  const fps = Number(document.getElementById("fps").value) || 30;
+  const seconds = Number(document.getElementById("episode_sec").value) || 60;
+  const bytesPerSecond = depthRoles().reduce((total,role)=>{
+    const [width,height] = savedSize(cameraResolution[role]);
+    return total+width*height*4*fps;
+  },0);
+  target.textContent = `深度临时 TIFF 约 ${(bytesPerSecond/1e6).toFixed(1)} MB/s，本集 ${seconds} 秒约 ${(bytesPerSecond*seconds/1e9).toFixed(2)} GB（不含 RGB 和额外开销）。保存时编码为视频并清理临时图像。建议先录 10 秒验证磁盘与节拍。`;
+}
+
+function rgbdTimingSummary(stats){
+  const checked = stats.timestamp_checked_frames || 0;
+  const unverified = stats.timestamp_unverified_frames ?? stats.frames ?? 0;
+  const receive = Number.isFinite(stats.max_rgb_depth_receive_skew_ms) ? `RGB/深度主机接收时差最大 ${stats.max_rgb_depth_receive_skew_ms.toFixed(1)} ms，用于检查旧帧积压，不代表曝光时差。` : "";
+  if(!checked || !Number.isFinite(stats.max_rgb_depth_skew_ms)) return receive+`RGB/深度：${unverified} 帧时间戳不可用或未通过有效性检查，时间同步未验证。`;
+  return receive+`RGB/深度有效时间戳已检查 ${checked} 帧（设备时钟 ${stats.timestamp_device_frames || 0} 帧、全局时钟 ${stats.timestamp_global_frames || 0} 帧），最大差 ${stats.max_rgb_depth_skew_ms.toFixed(2)} ms；另有 ${unverified} 帧未验证。时差检查不代表同步曝光。`;
+}
+
+// 每次状态轮询最多请求一张图；不排队，慢请求超过两秒即清除旧画面。
+function previewPicture(picture, placeholder, source, key, unavailable = "等待相机画面…"){
+  if(picture.previewKey !== key){
+    picture.previewKey = key;
+    picture.previewPending = false;
+    picture.onload = picture.onerror = null;
+    picture.removeAttribute("src");
+    picture.hidden = true;
+    placeholder.hidden = false;
+    placeholder.textContent = unavailable;
+  }
+  if(!source){
+    picture.hidden = true; placeholder.hidden = false; placeholder.textContent = unavailable;
+    return;
+  }
+  if(picture.previewPending && Date.now() - picture.previewRequestedAt < 2000) return;
+  if(picture.previewPending){
+    picture.hidden = true; placeholder.hidden = false; placeholder.textContent = "画面更新超时，正在重试…";
+  }
+  const token = ++previewSequence;
+  picture.previewToken = token;
+  picture.previewPending = true;
+  picture.previewRequestedAt = Date.now();
+  picture.onload = ()=>{
+    if(picture.previewKey !== key || picture.previewToken !== token) return;
+    picture.previewPending = false; picture.hidden = false; placeholder.hidden = true;
+  };
+  picture.onerror = ()=>{
+    if(picture.previewKey !== key || picture.previewToken !== token) return;
+    picture.previewPending = false; picture.hidden = true; placeholder.hidden = false;
+    placeholder.textContent = "暂无新画面，正在重试…";
+  };
+  picture.src = `${source}?frame=${token}`;
+}
+
+function updatePreviews(s){
+  cameraFocus.update(s, pageReady());
+  const roles = s.connected ? Object.keys(s.active_cameras || {}) : selectedRoles();
+  const sampled = s.connected && ["recording","stopping"].includes(s.record.phase);
+  document.getElementById("preview-mode").textContent = sampled
+    ? "录制采样画面 · 复用已提交帧 · 页面约 2 FPS，采集 FPS 见下方"
+    : "实时取景 · 此刻画面不计入数据集 · 页面约 2 FPS";
+  const focusWarnings = Object.entries(s.camera_focus || {}).filter(([id,check])=>{
+    const selected = s.connected ? Object.values(s.camera_devices || {}).some(info=>info.id === id) : !!CAMERAS[id];
+    return selected && check.state === "warning";
+  }).map(([id,check])=>`${CAMERAS[id]?.name || id}：${check.message}`);
+  const focusWarning = document.getElementById("camera-focus-warning");
+  focusWarning.hidden = !focusWarnings.length;
+  focusWarning.textContent = focusWarnings.join("；");
+  for(const role of ["left","right","head"]){
+    const show = roles.includes(role);
+    document.getElementById("live-"+role).hidden = !show;
+    const ids = Object.keys(MAP).filter(id=>MAP[id] === role);
+    const id = ids.length === 1 ? ids[0] : null;
+    const available = s.connected ? !!s.active_cameras?.[role] : !!(id && CAMERAS[id]);
+    const source = !show || !available || (!s.connected && cameraType(id) === "rgbd") ? null : (s.connected ? `/api/record/camera/${role}/frame` : `/api/camera/${encodeURIComponent(id)}/frame`);
+    const identity = s.connected ? s.active_cameras?.[role] : id;
+    document.getElementById("live-id-"+role).textContent = identity || (role === "head" ? "尚未分配头部相机" : "尚未分配唯一相机");
+    document.getElementById("live-label-"+role).textContent = sampled ? "录制采样" : "取景预览";
+    previewPicture(document.getElementById("live-image-"+role), document.getElementById("live-empty-"+role), source, `${source}|${identity}|${sampled}`, !s.connected && cameraType(id) === "rgbd" ? "请在相机分配区查看 RGB / 深度并排预览" : (id || s.connected ? "等待相机画面…" : "请在上方展开相机分配，指定设备"));
+  }
+  for(const role of CAMERA_ROLES){
+    const name = role+"_depth";
+    const show = s.connected ? roles.includes(name) : depthRoles().includes(role);
+    document.getElementById("live-"+name).hidden = !show;
+    const source = s.connected && show ? `/api/record/camera/${name}/frame` : null;
+    document.getElementById("live-label-"+name).textContent = sampled ? "录制采样" : "取景预览";
+    previewPicture(document.getElementById("live-image-"+name), document.getElementById("live-empty-"+name), source, `${source}|${s.active_cameras?.[name]}|${sampled}`, "请在相机分配区查看 RGB / 深度并排预览");
+  }
+  // 折叠时不请求分配预览；采集期间只显示中间的实际来源。
+  document.querySelectorAll(".cam[data-camera-id]").forEach(card=>{
+    const id = card.dataset.cameraId;
+    const visible = document.getElementById("camera-settings").open && !s.connected && CAMERAS[id];
+    const rgbd = cameraType(id) === "rgbd";
+    const focusLabel = card.querySelector(".camera-focus");
+    if(focusLabel){
+      const focus = s.camera_focus?.[id];
+      focusLabel.hidden = rgbd;
+      focusLabel.className = "camera-focus " + (focus?.state === "warning" ? "warn" : "muted");
+      const stages = {open:"打开时",episode_start:"本集开始前",episode_end:"本集结束后"};
+      const values = focus?.values || {};
+      const details = [];
+      if(values.zoom_absolute != null) details.push(`变焦读数 ${values.zoom_absolute}`);
+      if(values.exposure_auto != null) details.push(`曝光模式读数 ${values.exposure_auto}`);
+      if(values.exposure_absolute != null) details.push(`曝光读数 ${values.exposure_absolute}`);
+      focusLabel.textContent = focus ? `最近检查（${stages[focus.stage] || focus.stage}）：${focus.message}`
+        +(details.length ? `。${details.join("；")}` : "")+"。仅为控制值读回，不代表光学清晰度已验证。"
+        : "对焦状态：尚未读取，打开相机后检查。";
+    }
+    const state = s.camera_previews?.[id] || {phase:"closed"};
+    if(state.phase === "ready") depthPreviewErrors.delete(id);
+    const error = depthPreviewErrors.get(id) || (state.phase === "error" ? state.message : "");
+    const idle = !s.config_error && !s.recording && !s.homing && !s.ending && !s.disabling && !s.device_busy?.length
+      && !cameraDetectionPending && !resolutionsPending && !sessionRequestPending && !safetyPending && !armRequestPending.size;
+    if(visible && rgbd && CAMERAS[id].preview_supported && state.phase === "closed" && !error && idle && !depthPreviewPending.size){
+      void startDepthPreview(id);
+    }
+    const ready = !rgbd || state.phase === "ready";
+    const source = visible && ready ? `/api/camera/${encodeURIComponent(id)}/${rgbd ? "rgbd/" : ""}frame` : null;
+    const message = s.connected ? "会话已锁定，请在采集区查看画面" : !visible ? "预览已折叠" : !rgbd ? "等待画面…"
+      : !CAMERAS[id].preview_supported ? "当前仅支持检测，尚未接通 RGBD 预览"
+      : error || (depthPreviewPending.has(id) || state.phase === "opening" ? "正在打开 RGB / 深度预览…" : "等待设备空闲后打开预览…");
+    previewPicture(card.querySelector("img"), card.querySelector(".mapping-empty"), source, source, message);
+    const retry = card.querySelector(".preview-retry");
+    if(retry){
+      retry.hidden = !visible || !CAMERAS[id].preview_supported;
+      retry.disabled = !idle || depthPreviewPending.size > 0 || state.phase === "opening";
+      retry.textContent = state.phase === "ready" ? "重新打开预览" : "重试预览";
+    }
+  });
+}
+
+async function startDepthPreview(id, restart = false){
+  if(depthPreviewPending.size || !pageReady()) return;
+  depthPreviewPending.add(id); depthPreviewErrors.delete(id);
+  try{
+    const response = await fetch(`/api/camera/${encodeURIComponent(id)}/preview/start`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({restart})
+    });
+    const result = await response.json();
+    if(response.status === 409) return; // 其他窗口抢先开始操作，等待下一次空闲状态。
+    if(!response.ok || !result.ok) throw new Error(result.msg || "RGBD 预览打开失败");
+  }catch(error){ depthPreviewErrors.set(id, error.message); }
+  finally{ depthPreviewPending.delete(id); await refresh(); }
+}
+
+function changeVoice(preview = false){
+  voice.configure({enabled:document.getElementById("voice-enabled").checked, voice:document.getElementById("voice-name").value, volume:Number(document.getElementById("voice-volume").value)/100});
+  document.getElementById("voice-status").textContent = voice.enabled && voice.volume > 0 ? "语音设置已保存，可点击试听。" : "语音已关闭，操作确认仍会显示文字提醒。";
+  if(preview) void voice.say("preview");
+}
+function previewVoice(){ void voice.say("preview"); }
+function operationError(error){
+  commandError = error.message;
+  document.getElementById("rec-error").textContent = commandError;
+  void voice.say("failed");
+}
+
+function safetyConfirm(title, text, cue, label){
+  if(safetyPending) return Promise.resolve(false);
+  return new Promise(resolve=>{
+    safetyPending = {resolve, cue, label};
+    voice.locked = true;
+    document.getElementById("safety-title").textContent = title;
+    document.getElementById("safety-text").textContent = VOICE_MANIFEST.prompts[cue]+"\n\n"+text;
+    document.getElementById("safety-confirm").disabled = true;
+    try{
+      document.getElementById("safety-dialog").showModal();
+      document.getElementById("safety-cancel").focus();
+      replaySafety();
+    }catch(error){ finishSafety(false); operationError(error); }
+  });
+}
+async function replaySafety(){
+  const pending = safetyPending;
+  if(!pending) return;
+  const button = document.getElementById("safety-confirm");
+  // 语音不阻塞确认：按钮立即可点，语音后台播放，点确认即停止。
+  button.disabled = false;
+  button.textContent = pending.label;
+  document.getElementById("safety-audio").textContent = "正在播报提醒；可立即确认，也可等待听完。";
+  void voice.say(pending.cue, {critical:true});
+}
+function finishSafety(accepted){
+  if(!safetyPending || (accepted && document.getElementById("safety-confirm").disabled)) return;
+  const pending = safetyPending;
+  safetyPending = null;
+  voice.stop(); voice.locked = false;
+  document.getElementById("safety-dialog").close();
+  pending.resolve(accepted);
+  if(!accepted) void voice.say("cancel_action");
+}
+
+async function post(url, data){
+  if(!pageReady() && !["/api/record/stop", "/api/collection/end"].includes(url)){
+    throw new Error("页面配置或设备状态尚未读取完成，请等待连接恢复后再操作。");
+  }
+  commandError = "";
+  const options = {method:"POST"};
+  if(data !== undefined){
+    options.headers = {"Content-Type":"application/json"};
+    options.body = JSON.stringify(data);
+  }
+  const response = await fetch(url, options);
+  const result = await response.json();
+  if(!response.ok || !result.ok) throw new Error(result.msg || "操作失败");
+  return result;
+}
+
+async function runCommand(url, ch, action, cue){
+  if(safetyPending || armRequestPending.has(ch)) return;
+  armRequestPending.add(ch);
+  if(cue) void voice.say(cue);
+  try{ await post(url); voice.trackArm(ch, action); }catch(error){ operationError(error); }
+  finally{ armRequestPending.delete(ch); await refresh(); }
+}
+
+function buildArms(){
+  const box = document.getElementById("arms");
+  box.innerHTML = "";
+  CH.forEach(ch=>{
+    const div = document.createElement("div"); div.className = "armrow";
+    div.innerHTML = `<div class="armhead"><div class="ch">${ch}</div>
+      <select id="lb-${ch}" onchange="setLabel('${ch}', this.value)">${LABELS.map(l=>`<option>${l}</option>`).join("")}</select>
+      </div><div class="arm-actions"><button class="device-command" onclick="armConnect('${ch}')">连接并读取</button>
+      <button onclick="checkArm('${ch}')">检查状态</button>
+      <button class="device-command" id="move-${ch}" onclick="armMove('${ch}')">微动测试</button>
+      <button class="device-command quiet-danger" id="home-${ch}" onclick="armDisable('${ch}')">回位后失能</button></div>
+      <div class="hardware">
+        <div id="comm-${ch}"></div><div id="mode-${ch}"></div>
+        <div id="power-${ch}"></div><div id="fault-${ch}"></div>
+      </div>
+      <div class="st" id="st-${ch}">最近操作：未连接</div>
+      <div class="muted" id="guidance-${ch}"></div>
+      <details><summary>详细关节状态与角度</summary><div class="hardware"><div id="joints-${ch}"></div><div id="position-${ch}"></div></div></details>`;
+    box.appendChild(div);
+  });
+  const results = document.getElementById("close-arms");
+  results.innerHTML = CH.map(ch=>`<div class="result-row" id="close-row-${ch}" hidden><span id="close-arm-${ch}"></span><button id="recheck-${ch}" onclick="retryClose('status','${ch}')" hidden>重新确认 ${ch} 状态（只读）</button><button id="retry-${ch}" onclick="retryClose('arm','${ch}')" hidden>仅重试 ${ch} 失能</button></div>`).join("");
+}
+
+async function redetectCan(){
+  try{ await post("/api/can/redetect"); }
+  catch(error){ operationError(error); }
+  await refresh();
+}
+
+function copyCanCmd(btn){
+  const text = document.getElementById("can-cmd-text")?.textContent || "";
+  const done = () => { btn.textContent = "已复制"; setTimeout(()=>{ btn.textContent = "复制命令"; }, 1500); };
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text, done));
+  }else{
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, done){
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); done(); }catch(e){}
+  document.body.removeChild(ta);
+}
+
+async function detectCameras(kind){
+  if(cameraDetectionPending || document.getElementById("btn-detect-"+kind).disabled) return;
+  cameraDetectionPending = true;
+  document.getElementById("btn-detect-depth").disabled = true;
+  document.getElementById("btn-detect-rgb").disabled = true;
+  document.getElementById("camera-detection").textContent = kind === "depth" ? "正在检测奥比 Femto、Azure Kinect、RealSense…" : "正在检测 RGB 相机…";
+  try{
+    const result = await post("/api/cameras/detect/"+kind);
+    // 检测只更新设备清单，不能覆盖用户尚未保存的用途选择。
+    renderCameras(result);
+  }catch(error){
+    document.getElementById("camera-detection").textContent = error.message;
+    operationError(error);
+  }finally{ cameraDetectionPending = false; await refresh(); }
+}
+
+async function armConnect(ch){ await runCommand("/api/arm/connect/"+ch, ch, "connect", "connect"); }
+async function checkArm(ch){
+  commandError = "";
+  void voice.say("check");
+  try{
+    const result = await getJson("/api/arm/status/"+ch);
+    if(!result.ok) throw new Error(result.msg || "读取状态失败");
+    void voice.say("checked");
+  }catch(error){ operationError(error); }
+  await refresh();
+}
+async function armMove(ch){ await runCommand("/api/arm/move/"+ch, ch, "micro", "micro"); }
+async function armDisable(ch){
+  if(safetyPending || document.getElementById("home-"+ch).disabled) return;
+  const name = document.getElementById("lb-"+ch).value;
+  if(await safetyConfirm("确认回位后失能", `${name} (${ch})：第二关节 90°，其余关节 0°，到位后失能关节及夹爪。`, "single_home_warning", "确认回位后失能")){
+    await runCommand("/api/arm/disable/"+ch, ch, "single_home", "single_home_started");
+  }
+}
+
+async function setLabel(ch, label){
+  try{ await post("/api/label/"+ch, {label}); markConfigDirty(); void voice.say("label_changed"); }catch(error){ operationError(error); }
+  refresh();
+}
+
+function teleopModeLabel(mode){
+  return mode === "j" ? "底层平滑（高延迟 move_j）" : "分离控制（低延迟 move_js）";
+}
+function updateTeleopSummary(){
+  const mode = document.getElementById("follow_motion_mode").value;
+  const frequency = document.getElementById("control_frequency").value || "100";
+  const fps = Number(document.getElementById("fps").value);
+  const rate = frequency === "capture" ? `跟随采集（当前 ${fps > 0 ? fps : "—"} Hz）` : `${frequency} Hz`;
+  document.getElementById("teleop-summary").textContent = `${teleopModeLabel(mode)}；控制频率：${rate}。`+
+    (mode === "j" ? "由控制器平滑运动，跟随延迟较大；结束一集时会请求从臂保持当前反馈位置，再保存视频，保持使能。" : "按主臂当前目标下发，响应较快；结束一集停止下发跟随目标，保持使能。")+
+    "实际控制频率与数据采样 FPS 分别显示；频率为调度目标，卡顿时记录错过时刻，不突发补发。";
+}
+async function loadConfig(){
+  const cfg = await getJson("/api/config");
+  document.getElementById("pair_mode").value = cfg.pair_mode || "single";
+  document.getElementById("follow_motion_mode").value = cfg.follow_motion_mode || "js";
+  document.getElementById("control_frequency").value = String(cfg.control_frequency ?? 100);
+  cameraResolution = JSON.parse(JSON.stringify(cfg.camera_resolution || DEFAULT_RESOLUTIONS));
+  cameraFocus.load(cfg.camera_focus_settings);
+  for(const key of ["leader_label","follower_label","record_camera","fps","episode_sec","repo_id","task"]){
+    document.getElementById(key).value = cfg[key];
+  }
+  CH.forEach(ch=>{ document.getElementById("lb-"+ch).value = cfg.arms[ch]; });
+  configLoaded = true;
+  renderResolutionControls();
+  updateDepthStorageHint();
+  updatePairSummary();
+  updateTeleopSummary();
+}
+
+function pageSelection(){
+  return {pair_mode:document.getElementById("pair_mode").value || "single",
+    leader_label:document.getElementById("leader_label").value,
+    follower_label:document.getElementById("follower_label").value};
+}
+function selectedLabels(selection){
+  return selection.pair_mode === "dual" ? ["主左","从左","主右","从右"] : [selection.leader_label, selection.follower_label];
+}
+function updatePairSummary(){
+  const dual = pageSelection().pair_mode === "dual";
+  document.getElementById("single-leader").hidden = dual;
+  document.getElementById("single-follower").hidden = dual;
+  document.getElementById("pair-summary").textContent = dual
+    ? "主左 → 从左；主右 → 从右。四条臂共同录制一集；状态与动作均为左 8 维＋右 8 维（各 7 关节＋夹爪）。切换模式请使用新的数据集名。"
+    : "单对采集：所选从臂状态与主臂下发动作各 8 维（7 关节＋夹爪）。";
+}
+
+async function loadCameras(){
+  const revision = configRevision;
+  const data = await getJson("/api/cameras");
+  if(revision === configRevision) MAP = data.camera_map;
+  renderCameras(data);
+  camerasLoaded = true;
+}
+
+function purposeSelect(id){
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", "相机用途："+id);
+  for(const [value,label] of [["unused","未用"],["left","左侧相机"],["right","右侧相机"],["head","头部相机"]]){
+    select.add(new Option(label, value));
+  }
+  select.value = MAP[id] || "unused";
+  select.addEventListener("change", ()=>{ MAP[id] = select.value; markConfigDirty(); updateCameraSummary(); void voice.say("camera_changed"); });
+  return select;
+}
+
+function renderCameras(data){
+  CAMERAS = data.cameras;
+  const results = Object.values(data.detection || {});
+  document.getElementById("camera-detection").textContent = `已检测到 ${Object.keys(CAMERAS).length} 台相机。`+
+    results.map(result=>`${result.label}：${result.message}`).join("；");
+  const box = document.getElementById("cams"); box.innerHTML = "";
+  cameraFocus.clearRows();
+  // 设备编号与用途无关，修改下拉框不会重排或重命名设备。
+  Object.keys(CAMERAS).sort().forEach((id,index)=>{
+    const info = CAMERAS[id];
+    const div = document.createElement("div"); div.className = "cam";
+    div.dataset.cameraId = id;
+    const title = document.createElement("div"); title.className = "camera-title";
+    title.textContent = `相机 ${index+1}`;
+    const identity = document.createElement("div"); identity.className = "camera-id";
+    identity.textContent = `${info.type === "rgbd" ? "RGBD" : "RGB"} · ${info.name || id}`+(info.serial ? ` · ${info.serial}` : "");
+    div.append(title, identity);
+    const picture = document.createElement("img"); picture.alt = `相机 ${index+1} 核对画面`; picture.hidden = true;
+    const missing = document.createElement("div"); missing.className = "mapping-empty muted";
+    missing.textContent = info.type === "rgbd" ? "等待 RGB / 深度预览…" : "等待画面…";
+    if(info.type === "rgbd"){
+      picture.className = "rgbd-pair"; picture.alt = `相机 ${index+1}：左 RGB，右深度伪彩色`;
+      const labels = document.createElement("div"); labels.className = "rgbd-labels";
+      const rgb = document.createElement("span"), depth = document.createElement("span");
+      rgb.textContent = "RGB"; depth.textContent = "深度"; labels.append(rgb,depth); div.append(labels);
+    }
+    div.append(picture, missing);
+    cameraFocus.add(div, id, info);
+    const focus = document.createElement("div"); focus.className = "camera-focus muted";
+    focus.hidden = info.type === "rgbd"; focus.textContent = "对焦状态：等待读取…";
+    div.append(focus);
+    if(info.type === "rgbd" && info.preview_supported){
+      const note = document.createElement("div"); note.className = "muted";
+      note.textContent = "同一组 RGBD 画面 · 深度固定 0～10 m 色阶，无效值黑色。预览不写入数据集。";
+      const retry = document.createElement("button"); retry.className = "preview-retry"; retry.textContent = "重试预览"; retry.hidden = true;
+      retry.addEventListener("click", ()=>{ if(!retry.disabled) void startDepthPreview(id, true); });
+      div.append(note,retry);
+    }
+    if(info.recording_supported === false){
+      const note = document.createElement("div"); note.className = "warn";
+      note.textContent = "已支持检测，尚未接通 RGBD 录制，请暂设为未用。";
+      div.append(note);
+    }
+    const label = document.createElement("div"); label.textContent = "用途";
+    div.append(label, purposeSelect(id));
+    box.appendChild(div);
+  });
+  // 保留失联设备的配置供用户处理，但不把历史占位算作检测到的相机。
+  const missingBox = document.getElementById("missing-cameras"); missingBox.innerHTML = "";
+  const missingAssignments = Object.entries(MAP).filter(([id,role])=>!(id in CAMERAS) && role !== "unused");
+  for(const [id] of missingAssignments){
+    const row = document.createElement("div"), text = document.createElement("div");
+    text.textContent = "已分配但未检测到："+id;
+    row.append(text, purposeSelect(id)); missingBox.appendChild(row);
+  }
+  missingBox.hidden = !missingAssignments.length;
+  updateCameraSummary();
+}
+
+function savedSize(setting){
+  return [setting.width, setting.height].map(value=>Math.max(2, Math.floor(value/setting.scale/2)*2));
+}
+function scaleOptions(width, height){
+  const values = [1];
+  while(width/values[values.length-1] > 640 && height/values[values.length-1] > 480) values.push(values[values.length-1]*2);
+  return values;
+}
+function resolutionSource(role){
+  const ids = Object.keys(MAP).filter(id=>MAP[id] === role);
+  return ids.length === 1 ? ids[0] : "";
+}
+function profileSupportsFPS(profile){
+  if(profile.reason) return false;
+  const fps = Number(document.getElementById("fps").value) || 30;
+  if(profile.fps?.length) return profile.fps.some(value=>Math.abs(value-fps) <= fps*.001);
+  if(profile.interval_range){
+    const [low, high, step] = profile.interval_range, interval = 1/fps;
+    return interval >= low && interval <= high && (!step || Math.abs((interval-low)/step-Math.round((interval-low)/step)) < .00001);
+  }
+  return true;
+}
+function renderResolutionControls(){
+  for(const role of ["left","right","head"]){
+    const setting = cameraResolution[role], current = `${setting.width}x${setting.height}`;
+    const cached = resolutionProfiles[role];
+    const profiles = cached?.source === resolutionSource(role) ? cached.profiles : [];
+    const sizes = new Map();
+    for(const p of profiles){
+      const key = `${p.width}x${p.height}`;
+      if(!sizes.has(key)) sizes.set(key, []);
+      sizes.get(key).push(p);
+    }
+    const options = [...sizes.entries()].sort((a,b)=>b[1][0].width*b[1][0].height-a[1][0].width*a[1][0].height).map(([key, entries], index)=>{
+      const p = entries[0], usable = entries.some(profileSupportsFPS);
+      const rates = [...new Set(entries.filter(p=>!p.reason).flatMap(p=>p.fps || []))].sort((a,b)=>a-b);
+      const text = `${p.width}×${p.height}${index === 0 ? " · 最大" : ""}${rates.length ? " · "+rates.map(n=>Number(n.toFixed(2))).join("/")+" FPS" : ""}${usable ? "" : " · 当前 FPS / RGBD 不可用"}`;
+      return `<option value="${key}"${usable ? "" : " disabled"}>${text}</option>`;
+    });
+    if(!sizes.has(current)) options.unshift(`<option value="${current}">${setting.width}×${setting.height} · ${profiles.length ? "当前配置，设备未列出" : "当前配置，待读取"}</option>`);
+    const select = document.getElementById("resolution-"+role);
+    select.innerHTML = options.join(""); select.value = current;
+    const factors = scaleOptions(setting.width, setting.height);
+    const scale = document.getElementById("scale-"+role);
+    scale.innerHTML = factors.map((factor,index)=>{
+      const size = savedSize({...setting,scale:factor}).join("×");
+      return `<option value="${factor}">${factor === 1 ? "原尺寸" : `缩小 ${index} 次 · 宽高各 1/${factor}`} → ${size}</option>`;
+    }).join("");
+    scale.value = setting.scale;
+    document.getElementById("resolution-output-"+role).textContent = `采集 ${setting.width}×${setting.height} → 保存 ${savedSize(setting).join("×")}${cameraType(assignedId(role)) === "rgbd" ? "（RGB/深度对齐）" : ""}`;
+    if(cached && cached.source !== resolutionSource(role)) document.getElementById("resolution-info-"+role).textContent = "设备分配已变化，请重新读取分辨率";
+  }
+  updateDepthStorageHint();
+}
+function changeResolution(role){
+  const [width,height] = document.getElementById("resolution-"+role).value.split("x").map(Number);
+  const scale = scaleOptions(width,height).includes(cameraResolution[role].scale) ? cameraResolution[role].scale : 1;
+  cameraResolution[role] = {width,height,scale};
+  renderResolutionControls(); updateRecordingSummary();
+}
+function changeScale(role){
+  cameraResolution[role].scale = Number(document.getElementById("scale-"+role).value);
+  renderResolutionControls(); updateRecordingSummary();
+}
+async function refreshResolutions(){
+  if(resolutionsPending || document.getElementById("btn-resolutions").disabled) return;
+  resolutionsPending = true;
+  document.getElementById("btn-resolutions").disabled = true;
+  try{
+    for(const role of ["left","right","head"]){
+      const info = document.getElementById("resolution-info-"+role), source = resolutionSource(role);
+      if(!source || !(source in CAMERAS)) { info.textContent = "请先在左侧分配此相机"; continue; }
+      info.textContent = "正在读取支持的分辨率，不启动视频流…";
+      try{
+        const data = await getJson(`/api/camera/resolutions/${role}?camera_id=${encodeURIComponent(source)}`);
+        if(source !== resolutionSource(role)) { info.textContent = "设备分配已变化，请重新读取"; continue; }
+        resolutionProfiles[role] = {source,profiles:data.profiles};
+        const count = new Set(data.profiles.map(p=>`${p.width}x${p.height}`)).size;
+        info.textContent = `${data.source ? "列出" : "设备报告"} ${count} 种分辨率；灰色档位不支持当前 FPS 或 RGBD。`+(data.source ? `来源：${data.source}。` : "")+(data.ranges?.length ? "连续范围："+data.ranges.join("；")+"；下拉框列出最大、逐次减半和最小档位。" : "");
+      }catch(error){ info.textContent = error.message+"。保留当前配置；开始采集时仍会验证实际尺寸。"; }
+    }
+    renderResolutionControls();
+  }finally{ resolutionsPending = false; await refresh(); }
+}
+
+function updateRecordingSummary(){
+  const streams = selectedRoles().flatMap(role=>{
+    const names = cameraType(assignedId(role)) === "rgbd" ? [role,role+"_depth"] : [role];
+    return names.map(name=>`${streamLabel(name)} ${savedSize(cameraResolution[role]).join("×")}`);
+  });
+  document.getElementById("record-camera-summary").textContent = `本次写入 ${streams.length} 路数据：${streams.join("、")}`;
+}
+
+function updateCameraSummary(){
+  renderResolutionControls();
+  updateRecordingSummary();
+  updateDepthStorageHint();
+  const roles = selectedRoles();
+  const names = {left:"左相机",right:"右相机",head:"头部相机",unused:"未用"};
+  const lines = roles.map(role=>{
+    const id = assignedId(role);
+    return `${names[role]}：${id || "请分配唯一的设备"}${id ? (cameraType(id) === "rgbd" ? "（RGB＋深度）" : "（RGB）") : ""}`;
+  });
+  document.getElementById("camera-summary").textContent = "录制来源："+lines.map(line=>line.length > 72 ? line.slice(0,69)+"…" : line).join("；");
+  document.getElementById("camera-summary").title = lines.join("；");
+  if(latestStatus && statusAvailable) updatePreviews(latestStatus);
+}
+
+function getConfig(){
+  cameraFocus.assertReady();
+  const labels = {};
+  CH.forEach(ch=>{ labels[ch] = document.getElementById("lb-"+ch).value; });
+  return {
+    ...pageSelection(),
+    labels,
+    camera_map: MAP,
+    record_camera: document.getElementById("record_camera").value,
+    camera_resolution: JSON.parse(JSON.stringify(cameraResolution)),
+    fps: parseInt(document.getElementById("fps").value) || 30,
+    follow_motion_mode: document.getElementById("follow_motion_mode").value || "js",
+    control_frequency: document.getElementById("control_frequency").value === "capture" ? "capture" : Number(document.getElementById("control_frequency").value || 100),
+    episode_sec: parseFloat(document.getElementById("episode_sec").value) || 60,
+    repo_id: document.getElementById("repo_id").value,
+    task: document.getElementById("task").value,
+  };
+}
+
+async function save(){
+  try{ await saveSilent(); void voice.say("config_saved"); }
+  catch(error){ operationError(error); }
+  refresh();
+}
+async function saveSilent(){
+  const revision = configRevision;
+  const result = await post("/api/save", getConfig());
+  if(revision === configRevision) document.getElementById("config-status").textContent = "配置已保存";
+  return result;
+}
+function selectedTargets(status){
+  const targets = {};
+  for(const label of selectedLabels(status)){
+    const channels = CH.filter(ch=>status.arms[ch].label === label);
+    if(channels.length !== 1) throw new Error(`${label} 的 CAN 通道映射不唯一`);
+    targets[channels[0]] = label;
+  }
+  return targets;
+}
+async function openSession(){
+  const button = document.getElementById("btn-session-start");
+  if(button.disabled || sessionRequestPending || safetyPending) return;
+  sessionRequestPending = true; button.disabled = true;
+  document.getElementById("session-status").textContent = "正在准备采集设备和数据集，请保持机械臂静止…";
+  void voice.say("session_start");
+  try{ await saveSilent(); await post("/api/connect"); void voice.say("session_ready"); }
+  catch(error){ operationError(error); }
+  finally{ sessionRequestPending = false; await refresh(); }
+}
+async function endSession(){
+  const button = document.getElementById("btn-end-session");
+  if(button.disabled || endRequestPending || safetyPending) return;
+  endRequestPending = true; button.disabled = true;
+  startReminderOpen = false; document.getElementById("start-reminder").hidden = true;
+  void voice.say("session_ending");
+  document.getElementById("end-status").textContent = "正在保存并完成数据收尾；不会失能机械臂…";
+  try{
+    const status = await getJson("/api/status");
+    await post("/api/collection/end", {targets:selectedTargets(status)});
+    void voice.say("session_ended");
+  }catch(error){ operationError(error); }
+  finally{ endRequestPending = false; await refresh(); }
+}
+async function disconnect(){
+  const button = document.getElementById("btn-disconnect");
+  if(button.disabled || disableRequestPending || safetyPending) return;
+  disableRequestPending = true;
+  button.disabled = true;
+  document.getElementById("btn-start").disabled = true;
+  document.getElementById("btn-home").disabled = true;
+  try{
+    const status = await getJson("/api/status");
+    if(status.connected || status.recording) throw new Error("请先结束采集并等待数据收尾，再确认机械臂失能。");
+    const saveBeforeDisable = !status.disable_error && !status.close_error;
+    const targets = selectedTargets(saveBeforeDisable ? {
+      ...pageSelection(),
+      arms:Object.fromEntries(CH.map(ch=>[ch,{label:document.getElementById("lb-"+ch).value}]))
+    } : status);
+    const names = Object.entries(targets).map(([ch,label])=>`${label} (${ch})`).join("、");
+    if(!await safetyConfirm("确认机械臂失能", `操作对象：${names}，包括已接入夹爪。\n仅原地失能，不自动回位，不重复数据收尾。请持续托稳，等关节和夹爪分别确认完成后再松手。`, "pair_disable_warning", "已托稳，确认失能")) return;
+    void voice.say("pair_disable_started");
+    if(saveBeforeDisable) await saveSilent();
+    await post("/api/pair/disable", {targets});
+    void voice.say("pair_disable_done");
+  }catch(error){ operationError(error); }
+  finally{ disableRequestPending = false; await refresh(); }
+}
+async function retryClose(stage, ch){
+  const button = document.getElementById(stage === "data" ? "retry-data" : (stage === "status" ? "recheck-" : "retry-")+ch);
+  if(button.disabled || button.hidden || disableRequestPending || safetyPending) return;
+  disableRequestPending = true;
+  button.disabled = true;
+  try{
+    const status = await getJson("/api/status");
+    const result = status.close_result;
+    if(!result) throw new Error("结束结果已变化，请刷新状态");
+    if(stage === "arm" && !await safetyConfirm("确认重试失能", `仅处理 ${result.targets[ch]} (${ch}) 及已接入夹爪，不重复收尾数据或操作另一条臂。`, "retry_disable_warning", "已托稳，确认重试")) return;
+    void voice.say({arm:"retry_disable",status:"recheck",data:"retry_data"}[stage]);
+    const response = await fetch("/api/close/retry", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({stage, channel:ch, targets:result.targets}),
+    });
+    const outcome = await response.json();
+    // 另一项尚未完成时接口仍返回未完成，逐项结果会在下方显示。
+    if(!outcome.ok) document.getElementById("disable-status").textContent = outcome.msg;
+    const latest = await getJson("/api/status");
+    const entry = stage === "data" ? latest.close_result?.data : latest.close_result?.arms[ch];
+    void voice.say(entry?.state === "done" ? (stage === "data" ? "retry_data_done" : "recheck_done") : "close_incomplete");
+  }catch(error){ operationError(error); }
+  finally{ disableRequestPending = false; await refresh(); }
+}
+async function returnHome(buttonId = "btn-home"){
+  const button = document.getElementById(buttonId);
+  if(button.disabled || homeRequestPending || safetyPending) return;
+  const targets = {};
+  for(const label of selectedLabels(pageSelection())){
+    const channels = CH.filter(ch=>document.getElementById("lb-"+ch).value === label);
+    if(channels.length !== 1){ operationError(new Error(`请给 ${label} 分配唯一的 CAN 通道`)); return; }
+    targets[channels[0]] = label;
+  }
+  const names = Object.entries(targets).map(([ch,label])=>`${label} (${ch})`).join("、");
+  homeRequestPending = true;
+  button.disabled = true;
+  document.getElementById("btn-start").disabled = true;
+  try{
+    if(!await safetyConfirm("确认主从臂返回默认位置", `操作对象：${names}，共 ${Object.keys(targets).length} 条臂。\n第二关节 90°，其余关节 0°；先从臂、后主臂依次回位，保持使能和夹爪状态。请松开所选主臂，避开所有运动路径。`, "home_warning", "确认返回默认位置")) return;
+    await saveSilent();
+    await post("/api/pair/home", {targets});
+  }catch(error){ operationError(error); }
+  finally{ homeRequestPending = false; await refresh(); }
+}
+async function start(){
+  if(safetyPending || startRequestPending || document.getElementById("btn-start").disabled) return;
+  startReminderOpen = true;
+  document.getElementById("start-reminder").hidden = false;
+  document.getElementById("btn-start").disabled = true;
+  void voice.say("prepare");
+  await refresh();
+}
+async function cancelStart(){
+  startReminderOpen = false;
+  document.getElementById("start-reminder").hidden = true;
+  void voice.say("cancelled");
+  await refresh();
+}
+async function confirmStart(){
+  if(safetyPending || !startReminderOpen || startRequestPending || document.getElementById("btn-confirm-start").disabled) return;
+  voice.stop();
+  document.getElementById("voice-status").textContent = "准备提醒已确认，正在准备从臂对齐…";
+  startReminderOpen = false;
+  document.getElementById("start-reminder").hidden = true;
+  startRequestPending = true;
+  document.getElementById("btn-start").disabled = true;
+  document.getElementById("btn-home").disabled = true;
+  document.getElementById("btn-disconnect").disabled = true;
+  try{ await saveSilent(); await post("/api/record/start"); }
+  catch(error){ operationError(error); }
+  finally{ startRequestPending = false; await refresh(); }
+}
+async function stop(){
+  if(safetyPending) return;
+  if(startReminderOpen){ await cancelStart(); return; }
+  if(stopRequestPending || document.getElementById("btn-stop").disabled) return;
+  stopRequestPending = true;
+  document.getElementById("btn-stop").disabled = true;
+  try{
+    const preparing = ["preparing","aligning"].includes(latestStatus?.record?.phase);
+    await post("/api/record/stop");
+    // 保存提示统一由状态变化播报，避免按钮和轮询各播一次。
+    if(preparing) void voice.say("cancel_pending");
+  }
+  catch(error){ operationError(error); }
+  finally{ stopRequestPending = false; await refresh(); }
+}
+
+async function refresh(){
+  const requestId = ++refreshRequested;
+  try{
+    const s = await getJson("/api/status");
+    if(requestId < refreshApplied) return;
+    refreshApplied = requestId;
+    statusAvailable = true;
+    latestStatus = s;
+    // 动态同步实际检测到的 CAN 通道（重插后数量/名字可能变化）
+    const detectedChannels = Object.keys(s.arms || {});
+    if(detectedChannels.length && detectedChannels.join(",") !== CH.join(",")){
+      CH = detectedChannels;
+      buildArms();
+    }
+    if(s.connected){
+      document.getElementById("pair_mode").value = s.pair_mode || "single";
+      document.getElementById("leader_label").value = s.leader_label;
+      document.getElementById("follower_label").value = s.follower_label;
+      if(s.camera_resolution && JSON.stringify(s.camera_resolution) !== JSON.stringify(cameraResolution)){
+        cameraResolution = JSON.parse(JSON.stringify(s.camera_resolution)); renderResolutionControls();
+      }
+      updateRecordingSummary();
+    }
+    updatePairSummary();
+    document.getElementById("device-count").textContent = `${s.arm_count} 条臂`;
+    const canDown = s.can_down || [];
+    const canWarn = document.getElementById("can-down-warning");
+    if(canDown.length){
+      const cmd = canDown.map(c=>`sudo ip link set ${c} up type can bitrate 1000000`).join("\n");
+      canWarn.innerHTML = `<b>⚠️ CAN 接口未启动（DOWN）：${canDown.join("、")}</b>，机械臂无法通信。请在终端手动执行：<button class="copy-btn" onclick="copyCanCmd(this)">复制命令</button><code class="can-cmd" id="can-cmd-text">${cmd}</code>`;
+      canWarn.hidden = false;
+    }else{
+      canWarn.hidden = true;
+    }
+    CH.forEach(ch=>{
+      const a = s.arms[ch];
+      const st = document.getElementById("st-"+ch);
+      st.textContent = "最近操作："+a.status;
+      const h = a.hardware;
+      document.getElementById("comm-"+ch).textContent = "通信："+(h?.communication.label || "未知");
+      document.getElementById("mode-"+ch).textContent = "控制模式："+(h?.mode.label || "未知");
+      const grip = !h?.gripper.present ? "未接入" : (h.gripper.enabled === true ? "使能" : (h.gripper.enabled === false ? "失能" : "未知"));
+      document.getElementById("power-"+ch).textContent = "关节："+(h?.enabled.label || "未知")+" · 夹爪："+grip;
+      document.getElementById("fault-"+ch).textContent = "设备状态："+(h?.health.label || "未知");
+      document.getElementById("fault-"+ch).className = h?.health.state === "fault" ? "warn" : "";
+      document.getElementById("joints-"+ch).textContent = (h?.enabled.joints || Array(7).fill(null)).map((v,i)=>`J${i+1} ${v === true ? "使能" : (v === false ? "失能" : "未知")}`).join(" · ");
+      document.getElementById("position-"+ch).textContent = "关节角度："+(h?.angles ? h.angles.join("°, ")+"°" : "等待有效新反馈");
+      document.getElementById("guidance-"+ch).textContent = (h?.guidance || "连接并读取状态后再操作。")+(h?.errors?.length ? " 读取提示："+h.errors.join("；") : "");
+      document.getElementById("lb-"+ch).value = a.label;
+    });
+    const selection = s.connected ? s : pageSelection();
+    const labels = selectedLabels(selection);
+    const dual = selection.pair_mode === "dual";
+    const ok = dual ? s.arm_count === 4 : (s.arm_count === 2 || s.arm_count === 4);
+    const gate = document.getElementById("gate");
+    gate.textContent = ok ? "" : `⚠ 当前检测到 ${s.arm_count} 条臂，${dual ? "左右双对需要 4 条臂" : "需检测到 2 或 4 条臂，并连接所选配对"}`;
+    const rec = s.record;
+    const motionBlocked = !!s.config_error || !!s.recovery_required;
+    document.getElementById("system-warning").hidden = !motionBlocked && !s.camera_config_notice;
+    document.getElementById("system-warning").textContent = s.config_error || s.recovery_required || s.camera_config_notice || "";
+    const busy = !!safetyPending || !!cameraFocus.pending || resolutionsPending || s.homing || homeRequestPending || s.ending || endRequestPending || sessionRequestPending || s.disabling || disableRequestPending || startRequestPending || armRequestPending.size > 0 || s.device_busy.length > 0;
+    const homeReady = labels.every(label=>{
+      const channels = CH.filter(ch=>s.arms[ch].label === label);
+      return channels.length === 1 && s.arms[channels[0]].detected;
+    });
+    const unfinished = !!s.disable_error || !!s.close_error;
+    const pairFault = CH.some(ch=>labels.includes(s.arms[ch].label) && s.arms[ch].hardware?.health.state === "fault");
+    document.getElementById("btn-home").disabled = motionBlocked || !homeReady || s.recording || busy || unfinished || pairFault;
+    document.getElementById("btn-home").textContent = s.homing ? "主从臂依次回位中…" : "主从臂返回默认位置";
+    document.getElementById("btn-home-end").disabled = document.getElementById("btn-home").disabled;
+    document.getElementById("btn-home-end").textContent = document.getElementById("btn-home").textContent;
+    const preparing = ["preparing", "aligning"].includes(rec.phase);
+    document.getElementById("btn-end-session").disabled = busy || !s.connected || (s.recording && preparing) || unfinished;
+    document.getElementById("btn-end-session").textContent = s.ending || endRequestPending ? "正在完成数据收尾…" : "结束采集";
+    document.getElementById("end-status").textContent = s.end_status || "";
+    document.getElementById("btn-disconnect").disabled = busy || s.connected || s.recording || !homeReady || !!s.disable_error;
+    document.getElementById("btn-disconnect").textContent = s.disabling ? "正在确认失能…" : (s.disable_error ? "请处理下方未完成失能项" : "机械臂失能");
+    document.getElementById("disable-status").textContent = s.disable_status || "";
+    const closing = s.close_result;
+    document.getElementById("close-result").hidden = !closing;
+    const retryLocked = busy || s.recording || s.connected;
+    document.getElementById("close-data").textContent = closing ? "数据："+closing.data.message : "";
+    document.getElementById("retry-data").hidden = closing?.data.state !== "error";
+    document.getElementById("retry-data").disabled = retryLocked;
+    CH.forEach(ch=>{
+      const entry = closing?.arms[ch];
+      document.getElementById("close-row-"+ch).hidden = !entry;
+      const details = entry?.details;
+      const parts = details ? `（关节${details.joints === "disabled" ? "已失能" : "未确认"}；夹爪${details.gripper === "disabled" ? "已失能" : (details.gripper === "not_present" ? "未接入" : "未确认")}）` : "";
+      document.getElementById("close-arm-"+ch).textContent = entry ? `${entry.label} (${ch})：${entry.message}${parts}` : "";
+      document.getElementById("retry-"+ch).hidden = entry?.state !== "error";
+      document.getElementById("retry-"+ch).disabled = retryLocked;
+      document.getElementById("recheck-"+ch).hidden = entry?.state !== "error";
+      document.getElementById("recheck-"+ch).disabled = retryLocked;
+    });
+    document.getElementById("close-preview").textContent = closing ? closing.preview.message : "";
+    document.getElementById("close-warnings").textContent = closing ? closing.warnings.join("；") : "";
+    document.getElementById("session-status").textContent = sessionRequestPending ? "正在准备采集设备和数据集，请保持机械臂静止…" : (s.connected ? "采集会话已开启。可在采集区准备一集；结束一集不会失能。" : "采集会话未开启。机械臂仍可能保持使能，请查看左侧反馈。");
+    document.getElementById("home-status").textContent = s.home_status || "";
+    document.getElementById("home-status-end").textContent = s.home_status || "";
+    const cannotOpen = motionBlocked || !ok || !homeReady || s.recording || busy || !!s.home_error || unfinished || pairFault || !!rec.writer_error;
+    document.getElementById("btn-session-start").disabled = cannotOpen || s.connected;
+    document.getElementById("btn-session-start").textContent = sessionRequestPending ? "正在开启采集…" : (s.connected ? "采集已开启" : "开始采集");
+    const cannotStart = cannotOpen || !s.connected;
+    document.getElementById("btn-start").disabled = cannotStart || startReminderOpen;
+    document.getElementById("btn-confirm-start").disabled = cannotStart;
+    if(s.recording || s.disabling || s.ending){ startReminderOpen = false; document.getElementById("start-reminder").hidden = true; }
+    document.getElementById("btn-start").textContent = preparing && s.recording ? (rec.phase === "aligning" ? "从臂对齐中…" : "准备中…") : "① 准备一集 (q)";
+    document.getElementById("btn-stop").disabled = !startReminderOpen && (!s.recording || !["preparing","aligning","recording"].includes(rec.phase) || rec.stop_requested || stopRequestPending || s.disabling || s.ending || endRequestPending);
+    document.getElementById("btn-stop").textContent = startReminderOpen || preparing ? (rec.phase === "aligning" ? "取消对齐 (s)" : "取消准备 (s)") : (rec.phase === "saving" ? "正在保存…" : (rec.phase === "stopping" ? "正在结束…" : "结束一集 (s)"));
+    document.getElementById("btn-cancel-prepare").hidden = !startReminderOpen && !preparing;
+    document.getElementById("btn-cancel-prepare").disabled = document.getElementById("btn-stop").disabled;
+    const phases = {idle:"待机",preparing:"准备中",aligning:"从臂对齐",recording:"录制中",stopping:"结束中",saving:"保存中",saved:"已保存",saved_review:"已保存 · 需复核",error:"需处理"};
+    document.getElementById("phase-badge").textContent = s.ending ? "数据收尾中" : (s.disabling ? "失能确认中" : (s.homing ? "回位中" : (startReminderOpen ? "等待确认" : (rec.writer_error ? "保存异常 · 暂停续录" : phases[rec.phase] || rec.phase))));
+    document.getElementById("phase-badge").className = "badge "+(rec.phase === "recording" ? "recording" : (rec.phase === "error" || unfinished ? "error" : (rec.phase === "saved_review" ? "review" : "")));
+    document.getElementById("ready-pair").textContent = `${homeReady ? "✓" : "○"} ${dual ? "左右双对：主左 → 从左；主右 → 从右" : `单对：${selection.leader_label} → ${selection.follower_label}`}${homeReady ? "，已连接" : "，请检查全部连接与唯一角色分配"}`;
+    const roles = selectedRoles();
+    const camerasReady = roles.length > 0 && roles.every(role=>{
+      const ids = Object.keys(MAP).filter(id=>MAP[id] === role);
+      return ids.length === 1 && CAMERAS[ids[0]];
+    });
+    document.getElementById("ready-camera").textContent = s.connected ? "✓ 相机：会话来源已锁定" : `${camerasReady ? "✓" : "○"} 相机：${camerasReady ? "已分配，开始前核对画面" : "请检查分配与画面"}`;
+    document.getElementById("ready-state").textContent = unfinished || rec.writer_error || s.home_error || pairFault ? "! 先处理错误提示" : (s.recording ? "当前任务进行中" : (busy ? "设备操作进行中" : (!ok || !homeReady || (!s.connected && !camerasReady) ? "先完成机械臂和相机检查" : "确认环境后，可准备一集")));
+    document.getElementById("rec-status").textContent = rec.message;
+    document.getElementById("rec-progress").max = Math.max(0.1, rec.limit_seconds);
+    document.getElementById("rec-progress").value = Math.min(rec.elapsed_seconds, rec.limit_seconds);
+    document.getElementById("rec-metrics").textContent = `本集 ${rec.elapsed_seconds.toFixed(1)} / ${rec.limit_seconds} 秒 · 已采集 ${rec.frames} 帧`;
+    const timing = rec.timing;
+    const number = value=>value == null ? "—" : Number(value).toFixed(1);
+    document.getElementById("rec-fps").textContent = timing ? `目标 ${timing.target_fps} FPS · 实测采样 ${number(timing.effective_fps)} FPS` : "实测采样 FPS：等待至少两帧";
+    const control = rec.control_timing;
+    document.getElementById("rec-control").textContent = control ? `跟随控制（${rec.control_frequency === "capture" ? "跟随采集" : "固定频率"}）：目标 ${control.target_hz} Hz · 实测 ${number(control.effective_hz)} Hz · 最大间隔 ${number(control.max_interval_ms)} ms · 错过控制时刻 ${control.skipped_slots} 次` : `跟随控制目标 ${rec.control_hz ?? "—"} Hz；等待录制后测量，与采样 FPS 分别计时。`;
+    document.getElementById("rec-motion-mode").textContent = (s.connected ? `本次遥操作模式：${teleopModeLabel(rec.follow_motion_mode)}` : "遥操作模式和控制频率按保存配置在开始采集时生效。")+(rec.follow_stop_message ? `；${rec.follow_stop_message}` : "");
+    document.getElementById("rec-timing").textContent = timing
+      ? `目标 ${timing.target_fps} FPS · 实测采样 ${number(timing.effective_fps)} FPS · 最大帧间隔 ${number(timing.max_interval_ms)} ms · 平均/最长处理 ${number(timing.mean_processing_ms)}/${number(timing.max_processing_ms)} ms · 错过采样时刻 ${timing.skipped_slots} 次。实测值按有效帧起点间隔计算，不代表相机与机械臂已同步。`
+      : "实测采样 FPS 将在采到至少两帧后显示。";
+    for(const [name, stats] of Object.entries(timing?.cameras || {})) {
+      const ageBasis = stats.timestamp_checked_frames !== undefined ? "帧龄从完整 RGBD 到达后台计算，不包含 SDK 配对等待。" : "帧龄按主机接收时间计算。";
+      document.getElementById("rec-timing").textContent += ` ${streamLabel(name)}相机：写入 ${stats.frames} 帧，其中重复取用缓存 ${stats.repeated_frames} 帧，最大帧龄 ${number(stats.max_age_ms)} ms。${ageBasis}`;
+      if(name.endsWith("_depth")) document.getElementById("rec-timing").textContent += ` 深度全无效 ${stats.all_invalid_frames || 0} 帧，含超 10 米数值 ${stats.above_range_frames || 0} 帧。${rgbdTimingSummary(stats)}`;
+    }
+    document.getElementById("timing-warning").textContent = [...(timing?.warnings || []), ...(control?.warnings || []), ...(rec.timing_report_error ? [rec.timing_report_error] : [])].join("；");
+    document.getElementById("rec-total").textContent = `当前数据集已录 ${s.episode_count} 集`;
+    const last = rec.last_episode;
+    document.getElementById("last-summary").textContent = last ? `最近保存：第 ${last.number} 集 · ${last.frames} 帧 · ${last.elapsed_seconds.toFixed(1)} 秒` : "本次运行尚未保存";
+    document.getElementById("rec-last").textContent = last ? `最近保存：${last.repo_id} · 第 ${last.number} 集 · ${last.frames} 帧 · 录制 ${last.elapsed_seconds.toFixed(1)} 秒`+(last.timing ? ` · 实测 ${number(last.timing.effective_fps)} FPS · 按数据集 FPS 播放 ${number(last.timing.nominal_playback_seconds)} 秒` : "")+(last.timing_report ? `。节拍报告：${last.timing_report}` : "") : "尚无本次运行的保存结果";
+    if(last?.needs_review) document.getElementById("rec-last").textContent += `。本集需复核：${last.termination_error || "存在采样失败、节拍异常、重复相机帧或相机状态异常，请查看节拍报告"}`;
+    if(last?.pair_mode === "dual") document.getElementById("rec-last").textContent += "。左右双对：状态/动作各 16 维，左侧在前、右侧在后。";
+    if(last) document.getElementById("rec-last").textContent += `。遥操作模式：${teleopModeLabel(last.follow_motion_mode)}。`;
+    if(last?.control_timing) document.getElementById("rec-last").textContent += `控制${last.control_frequency === "capture" ? "跟随采集，" : ""}目标 ${last.control_timing.target_hz} Hz，实测 ${number(last.control_timing.effective_hz)} Hz，最大间隔 ${number(last.control_timing.max_interval_ms)} ms，错过 ${last.control_timing.skipped_slots} 次。`;
+    document.getElementById("rec-warning").textContent = rec.frame_errors ? `本集有 ${rec.frame_errors} 次采样失败，请检查数据质量。最近错误：${rec.frame_error}` : "";
+    document.getElementById("rec-error").textContent = rec.writer_error ? `${rec.writer_error}。已暂停续录，请结束采集并保留错误信息，检查数据后重新启动。` : (commandError || s.last_error || "");
+    const configLocked = !!s.config_error || busy || s.recording || s.connected || unfinished;
+    document.getElementById("btn-resolutions").disabled = configLocked || resolutionsPending;
+    for(const kind of ["depth","rgb"]) document.getElementById("btn-detect-"+kind).disabled = configLocked || cameraDetectionPending;
+    document.querySelectorAll("#config-area input, #config-area select, #cams select, #missing-cameras select, #arms select, #arms .device-command").forEach(control=>{ control.disabled = configLocked; });
+    CH.forEach(ch=>{
+      for(const action of ["move", "home"]){
+        document.getElementById(action+"-"+ch).disabled = motionBlocked || configLocked || !s.arms[ch].detected || s.arms[ch].hardware?.health.state === "fault";
+      }
+    });
+    document.getElementById("btn-save").disabled = configLocked;
+    document.getElementById("btn-save-devices").disabled = configLocked;
+    const active = Object.entries(s.active_cameras || {});
+    document.getElementById("active-cameras").textContent = s.connected
+      ? "会话已锁定，实际录制来源："+active.map(([role,path])=>`${role} → ${path}`).join("；")+"。修改相机请先结束采集。"
+      : "相机选择与机械臂选择独立。更改录制路数后，请使用新数据集名。";
+    if(lastConnected && !s.connected){
+      camerasLoaded = false;
+      try{ await loadCameras(); initializationError = ""; }
+      catch(error){ initializationError = "相机分配刷新失败，正在自动重试："+error.message; }
+      if(requestId !== refreshApplied) return;
+    }
+    lastConnected = s.connected;
+    voice.observe(s);
+    if(pageReady()) updatePreviews(s);
+    else lockUnavailableControls();
+    showConnectionStatus(pageReady() ? "" : (initializationError || "正在读取配置与相机分配，请稍候…"));
+  }catch(e){
+    if(requestId < refreshApplied) return;
+    refreshApplied = requestId;
+    statusAvailable = false;
+    lockUnavailableControls();
+    showConnectionStatus("页面连接中断，后台运行状态暂未知，正在自动重试："+e.message+"。这不表示本集保存失败；停止请求不会自动重发。");
+    document.getElementById("preview-mode").textContent = "状态连接中断，等待恢复";
+    for(const role of LIVE_STREAMS){
+      previewPicture(document.getElementById("live-image-"+role), document.getElementById("live-empty-"+role), null, "status-unavailable", "状态连接中断，暂不显示旧画面");
+    }
+  }
+}
+
+// 离开页面只提醒，绝不在卸载事件中结束采集或使能/失能。
+function shouldWarnBeforeLeave(){
+  const s = latestStatus;
+  if(safetyPending || startReminderOpen || homeRequestPending || disableRequestPending || sessionRequestPending || endRequestPending || startRequestPending || stopRequestPending || armRequestPending.size) return true;
+  if(!s) return false;
+  if(s.connected || s.recording || s.homing || s.disabling || s.ending || s.device_busy.length || s.disable_error || s.close_error || s.recovery_required || s.record.writer_error) return true;
+  return Object.values(s.arms).some(arm=>{
+    const h = arm.hardware;
+    // 曾连接的设备若反馈未知，同样需要提醒，不能推断为已失能。
+    return (arm.detected || (h && h.communication.state !== "disconnected")) &&
+      (!statusAvailable || h?.enabled.state !== "disabled" || (h.gripper.present && h.gripper.enabled !== false));
+  });
+}
+addEventListener("beforeunload", event=>{
+  if(!shouldWarnBeforeLeave()) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+
+document.addEventListener("keydown", e=>{
+  if(safetyPending || e.repeat || e.target.closest("input,textarea,select,[contenteditable]")) return;
+  if(e.key==="q"||e.key==="Q"){ e.preventDefault(); start(); }
+  if(e.key==="s"||e.key==="S"){ e.preventDefault(); stop(); }
+});
+
+async function poll(){
+  try{
+    if(!configLoaded) await loadConfig();
+    if(!camerasLoaded) await loadCameras();
+    initializationError = "";
+  }catch(error){ initializationError = "页面初始化未完成，正在自动重试："+error.message; }
+  try{ await refresh(); }
+  finally{
+    // 等上一轮结束再安排下一轮，慢请求不会每 500 ms 堆积。
+    setTimeout(poll, pageReady() ? 500 : 2000);
+  }
+}
+
+async function init(){
+  buildArms();
+  document.getElementById("voice-enabled").checked = voice.enabled;
+  document.getElementById("voice-name").value = voice.voice;
+  document.getElementById("voice-volume").value = Math.round(voice.volume*100);
+  lockUnavailableControls();
+  showConnectionStatus("正在读取配置与设备状态，请稍候…");
+  await poll();
+}
+init();
+</script>
+</body>
+</html>

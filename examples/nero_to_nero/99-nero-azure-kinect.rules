@@ -1,0 +1,2 @@
+# Azure Kinect DK only. SDK access for the local desktop user / plugdev group.
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="097[abcd]", GROUP="plugdev", MODE="0660", TAG+="uaccess"
