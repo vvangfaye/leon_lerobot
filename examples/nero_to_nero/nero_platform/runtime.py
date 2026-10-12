@@ -67,6 +67,7 @@ CONFIG_FIELDS = (
     "follow_motion_mode",
     "control_frequency",
     "camera_focus_settings",
+    "gripper_force",
 )
 DEFAULT_REPO_ID = "nero/platform_step1"
 CONTROL_FREQUENCIES = (50, 100, 150, 200)
@@ -136,6 +137,17 @@ def default_state() -> dict[str, Any]:
         "disable_error": None,
         "close_error": None,
         "close_result": None,
+        # 遥操作测试：只跟随主臂、不采样相机、不写数据集，用于前期训练。
+        "teleop_test_active": False,
+        "teleop_test_message": "",
+        "teleop_test_stop": False,
+        # 从臂夹爪夹持力（N），跟随循环每次下发实时读取，可采集过程中调整。
+        "gripper_force": 10.0,
+        # 遥操作测试专用夹持力（N），默认 3N，训练时更轻。
+        "teleop_gripper_force": 3.0,
+        # 返回默认位置逐个臂进行：回完一条臂后暂停，等待用户按 q 确认再回下一条。
+        "home_awaiting": False,
+        "home_pending": [],
     }
 
 
@@ -164,6 +176,8 @@ class Runtime:
     dataset: Any = None
     record_thread: threading.Thread | None = None
     home_thread: threading.Thread | None = None
+    teleop_test_thread: threading.Thread | None = None
+    home_continue_event: threading.Event = field(default_factory=threading.Event)
     device_busy: set[str] = field(default_factory=set)
     lifecycle_lock: Any = field(default_factory=threading.RLock)
     feedback_seen: dict[str, Any] = field(default_factory=dict)
@@ -174,5 +188,6 @@ class Runtime:
             self.state["shutting_down"]
             or any(self.state[key] for key in ("homing", "disabling", "ending"))
             or (include_recording and self.state["recording"])
+            or self.state["teleop_test_active"]
             or (channel in self.device_busy if channel else self.device_busy)
         )

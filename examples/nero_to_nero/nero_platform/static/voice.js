@@ -111,6 +111,8 @@ class NeroVoice {
       episode: status.record.last_episode ? `${status.record.last_episode.repo_id}/${status.record.last_episode.number}` : null,
       home: status.homing,
       homeStatus: status.home_status,
+      teleop: status.teleop_test_active,
+      teleopMessage: status.teleop_test_message,
       error: status.last_error,
     };
     const old = this.previous;
@@ -139,6 +141,14 @@ class NeroVoice {
       if (status.home_error) cue = 'failed';
       else if (now.homeStatus?.startsWith('主臂和从臂均已回默认位置')) cue = 'home_done';
     }
+    // 遥操作测试：启动、夹爪参数、对齐、就绪、停止分阶段播报。
+    if (now.teleop && !old.teleop) cue = 'teleop_test_started';
+    if (now.teleop && old.teleop && now.teleopMessage !== old.teleopMessage) {
+      if (now.teleopMessage?.includes('夹爪示教参数')) cue = 'teleop_test_gripper';
+      else if (now.teleopMessage?.includes('对齐从臂')) cue = 'teleop_test_align';
+      else if (now.teleopMessage?.includes('遥操作测试进行中')) cue = 'teleop_test_ready';
+    }
+    if (!now.teleop && old.teleop) cue = status.teleop_test_message?.startsWith('遥操作测试失败') ? 'failed' : 'teleop_test_stopped';
     if (now.error && now.error !== old.error) cue = 'failed';
     if (cue) void this.say(cue);
   }

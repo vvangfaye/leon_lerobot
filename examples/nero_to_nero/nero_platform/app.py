@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import threading
 import time
 from pathlib import Path
@@ -107,6 +108,14 @@ def create_app(runtime: Runtime) -> Flask:
         data = request.get_json(force=True)
         ok, msg = devices.start_return_home(runtime, data.get("targets"))
         return jsonify(ok=ok, msg=msg), 202 if ok else 409
+
+    @app.post("/api/pair/home/continue")
+    def api_pair_home_continue() -> Any:
+        with runtime.lifecycle_lock:
+            if not runtime.state["homing"] or not runtime.state["home_awaiting"]:
+                return jsonify(ok=False, msg="当前没有等待确认的回位步骤"), 409
+            runtime.home_continue_event.set()
+        return jsonify(ok=True)
 
     @app.get("/api/cameras")
     def api_cameras() -> Response:
@@ -309,6 +318,8 @@ def create_app(runtime: Runtime) -> Flask:
             homing=runtime.state["homing"],
             home_status=runtime.state["home_status"],
             home_error=runtime.state["home_error"],
+            home_awaiting=runtime.state["home_awaiting"],
+            home_pending=runtime.state["home_pending"],
             disabling=runtime.state["disabling"],
             ending=runtime.state["ending"],
             end_status=runtime.state["end_status"],
@@ -323,6 +334,10 @@ def create_app(runtime: Runtime) -> Flask:
                 for role, cam in list(runtime.collection_cams.items())
             },
             device_busy=sorted(runtime.device_busy),
+            teleop_test_active=runtime.state["teleop_test_active"],
+            teleop_test_message=runtime.state["teleop_test_message"],
+            teleop_gripper_force=runtime.state["teleop_gripper_force"],
+            gripper_force=runtime.state["gripper_force"],
             camera_previews=dict(runtime.preview_states),
             camera_focus=dict(runtime.camera_focus),
             camera_focus_settings=dict(runtime.state["camera_focus_settings"]),
@@ -429,6 +444,40 @@ def create_app(runtime: Runtime) -> Flask:
     def api_record_stop() -> Response:
         ok, msg = recorder.request_stop(runtime)
         return jsonify(ok=ok, msg=msg)
+
+    @app.post("/api/teleop/test/start")
+    def api_teleop_test_start() -> Any:
+        ok, msg = recorder.start_teleop_test(runtime)
+        return jsonify(ok=ok, msg=msg), 202 if ok else 409
+
+    @app.post("/api/teleop/test/stop")
+    def api_teleop_test_stop() -> Any:
+        ok, msg = recorder.stop_teleop_test(runtime)
+        return jsonify(ok=ok, msg=msg), 200 if ok else 409
+
+    @app.post("/api/gripper/force")
+    def api_gripper_force() -> Any:
+        data = request.get_json(silent=True) or {}
+        value = data.get("force")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return jsonify(ok=False, msg="夹持力必须是数值"), 400
+        if not math.isfinite(value) or not 0.0 <= value <= 32.0:
+            return jsonify(ok=False, msg="夹持力必须在 0 到 32 N 之间"), 400
+        with runtime.lifecycle_lock:
+            runtime.state["gripper_force"] = float(value)
+        return jsonify(ok=True, force=runtime.state["gripper_force"])
+
+    @app.post("/api/teleop/gripper/force")
+    def api_teleop_gripper_force() -> Any:
+        data = request.get_json(silent=True) or {}
+        value = data.get("force")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return jsonify(ok=False, msg="夹持力必须是数值"), 400
+        if not math.isfinite(value) or not 0.0 <= value <= 32.0:
+            return jsonify(ok=False, msg="夹持力必须在 0 到 32 N 之间"), 400
+        with runtime.lifecycle_lock:
+            runtime.state["teleop_gripper_force"] = float(value)
+        return jsonify(ok=True, force=runtime.state["teleop_gripper_force"])
 
     return app
 

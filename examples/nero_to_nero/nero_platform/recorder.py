@@ -222,6 +222,142 @@ def do_disconnect(runtime: Runtime, reopen_preview: bool = True) -> None:
         cameras.open_preview_cams(runtime)
 
 
+def start_teleop_test(runtime: Runtime) -> tuple[bool, str]:
+    """启动只遥操作、不录制数据的训练模式；不需要相机。"""
+    with runtime.lifecycle_lock:
+        if runtime.state["shutting_down"]:
+            return False, "程序正在退出，请等待收尾完成"
+        if runtime.state["config_error"] or runtime.state["recovery_required"]:
+            return False, runtime.state["config_error"] or runtime.state["recovery_required"]
+        if runtime.operation_busy():
+            return False, "机械臂正在执行操作，请等待完成"
+        if runtime.state["connected"]:
+            return False, "已开启采集会话，请先退出采集"
+        if runtime.state["teleop_test_active"]:
+            return False, "遥操作测试已在进行"
+        try:
+            pairing.resolve(runtime)
+        except ValueError as exc:
+            return False, str(exc)
+        runtime.state.update(
+            teleop_test_active=True,
+            teleop_test_message="正在使能主从臂并切换跟随模式…",
+            teleop_test_stop=False,
+        )
+        try:
+            runtime.teleop_test_thread = threading.Thread(
+                target=_teleop_test_loop, args=(runtime,), name="nero-teleop-test", daemon=False
+            )
+            runtime.teleop_test_thread.start()
+        except Exception as exc:
+            runtime.teleop_test_thread = None
+            runtime.state.update(teleop_test_active=False, teleop_test_message="")
+            return False, f"遥操作测试线程启动失败: {exc}"
+        return True, "已启动遥操作测试"
+
+
+def stop_teleop_test(runtime: Runtime) -> tuple[bool, str]:
+    """请求停止遥操作测试；等待跟随循环退出并恢复主臂角色。"""
+    with runtime.lifecycle_lock:
+        if not runtime.state["teleop_test_active"]:
+            return True, "当前没有进行中的遥操作测试"
+        runtime.state["teleop_test_stop"] = True
+        # 对齐/跟随循环内部用 stop_requested 感知取消，同步置位以覆盖对齐阶段。
+        runtime.state["stop_requested"] = True
+        runtime.state["teleop_test_message"] = "正在停止遥操作测试…"
+    if runtime.teleop_test_thread is not None:
+        runtime.teleop_test_thread.join()
+    with runtime.lifecycle_lock:
+        runtime.state["stop_requested"] = False
+    return True, "遥操作测试已停止"
+
+
+def _teleop_test_loop(runtime: Runtime) -> None:
+    """只跟随、不采样相机、不写数据集；使能主从臂后循环下发从臂指令。"""
+    try:
+        pairs = pairing.resolve(runtime)
+        motion_mode = runtime.state["follow_motion_mode"]
+        if motion_mode not in ("js", "j"):
+            raise ValueError("跟随方式配置无效，尚未下发指令")
+        control_hz = target_control_hz(runtime.state)
+        # 分阶段更新 teleop_test_message，供前端语音按阶段播报。
+        with runtime.lifecycle_lock:
+            runtime.state["teleop_test_message"] = "使能主从臂并切换示教/跟随模式…"
+        devices.transition_to_collection(runtime)
+        with runtime.lifecycle_lock:
+            runtime.state["teleop_test_message"] = "夹爪示教参数已设置（行程 100mm），正在对齐从臂…"
+        devices.align_follower_before_recording(runtime)
+        if runtime.state["teleop_test_stop"]:
+            return
+        feedbacks = [
+            sampling.RobotFeedback(runtime.channels[pair.leader], runtime.channels[pair.follower])
+            for pair in pairs
+        ]
+
+        def read_all() -> list[dict]:
+            return [feedback.read(time.monotonic()) for feedback in feedbacks]
+
+        read_all()
+        while not all(feedback.ready for feedback in feedbacks):
+            if runtime.state["teleop_test_stop"]:
+                return
+            time.sleep(0.01)
+            read_all()
+        control = timing.ControlTiming(control_hz, time.monotonic())
+        first_command = True
+        attempted_followers: dict[str, tuple[float, float, bool] | None] = {}
+        with runtime.lifecycle_lock:
+            runtime.state["teleop_test_message"] = "遥操作测试进行中：拖动主臂，从臂跟随（不录制数据）"
+        while not runtime.state["teleop_test_stop"]:
+            started = time.monotonic()
+            if started + 1e-9 < control.deadline:
+                time.sleep(min(control.deadline - started, 0.05))
+                continue
+            control_slot = control.begin(started)
+            try:
+                readings = read_all()
+                actions = []
+                for pair, values in zip(pairs, readings, strict=True):
+                    angles = values["主臂关节"]
+                    if first_command:
+                        devices.require_joint_alignment(
+                            angles, values["从臂关节"], f"{pair.display} 第一帧主臂指令与从臂"
+                        )
+                    actions.append(angles[:] + [min(max(values["主臂夹爪"][0], 0.0), 0.09)])
+                first_command = False
+                for pair, action, feedback in zip(pairs, actions, feedbacks, strict=True):
+                    follower = runtime.channels[pair.follower]
+                    if motion_mode == "j":
+                        attempted_followers[pair.follower] = feedback.seen.get("从臂关节")
+                        follower["arm"].move_j(action[:7])
+                    else:
+                        follower["arm"].move_js(action[:7])
+                    follower["gripper"].move_gripper_m(value=action[7], force=runtime.state["teleop_gripper_force"])
+                control.finish(control_slot, started, time.monotonic(), control.frames, None)
+            except (sampling.FeedbackError, sampling.CommandError) as exc:
+                with runtime.lifecycle_lock:
+                    runtime.state["teleop_test_message"] = f"遥操作测试中止：{exc}"
+                break
+            except Exception as exc:
+                traceback.print_exc()
+                with runtime.lifecycle_lock:
+                    runtime.state["teleop_test_message"] = f"遥操作测试出错：{exc}"
+                raise
+        if motion_mode == "j" and attempted_followers:
+            devices.hold_planned_followers(runtime, attempted_followers, time.monotonic())
+    except Exception as exc:
+        traceback.print_exc()
+        with runtime.lifecycle_lock:
+            runtime.state["teleop_test_message"] = f"遥操作测试失败: {exc}"
+    finally:
+        _leave_leader_mode(runtime)
+        with runtime.lifecycle_lock:
+            runtime.state["teleop_test_active"] = False
+            runtime.state["teleop_test_stop"] = False
+            if not runtime.state["teleop_test_message"].startswith("遥操作测试失败"):
+                runtime.state["teleop_test_message"] = "遥操作测试已结束"
+
+
 def start_recording(runtime: Runtime) -> tuple[bool, str]:
     with runtime.lifecycle_lock:
         if runtime.state["config_error"] or runtime.state["recovery_required"]:
@@ -669,7 +805,7 @@ def _record_episode(runtime: Runtime, camera_names: list[str]) -> None:
             if first_command:
                 devices.require_joint_alignment(angles, fangles, f"{pair.display} 第一帧主臂指令与从臂")
             robot_samples[pair.name]["leader_joint_positions"] = angles[:]
-            actions.append(angles[:] + [min(max(values["主臂夹爪"][0], 0.0), 0.07)])
+            actions.append(angles[:] + [min(max(values["主臂夹爪"][0], 0.0), 0.09)])
             observations.extend(fangles + values["从臂夹爪"])
         first_command = False
         for pair, action, feedback in zip(pairs, actions, feedbacks, strict=True):
@@ -682,7 +818,7 @@ def _record_episode(runtime: Runtime, camera_names: list[str]) -> None:
                     follower["arm"].move_j(action[:7])
                 else:
                     follower["arm"].move_js(action[:7])
-                follower["gripper"].move_gripper_m(value=action[7], force=1.0)
+                follower["gripper"].move_gripper_m(value=action[7], force=runtime.state["gripper_force"])
             except Exception as exc:
                 raise sampling.CommandError(
                     f"{pair.display} 跟随指令下发失败：{exc}；本帧不写入，不重试指令"

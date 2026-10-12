@@ -12,9 +12,13 @@ from pyAgxArm import AgxArmFactory, ArmModel, NeroFW, create_agx_arm_config
 from . import hardware_status, pairing
 from .runtime import Runtime, available_channels, default_channel_state
 
-HOME_POS = [0.0, 1.5708, 0.0, 0.0, 0.0, 0.0, 0.0]
+# 默认位置（关节角，单位：度）；move_j 使用弧度，故转为弧度。
+HOME_POS_DEG = [0, -100, 0, 120, 0, 0, 90]
+HOME_POS = [math.radians(d) for d in HOME_POS_DEG]
 HOME_TOLERANCE_RAD = 0.03
 HOME_TIMEOUT_SECONDS = 12.0
+# 主臂夹爪示教摩擦（1~10，越小捏合越省力；默认 1，曾误设为 8 导致捏夹爪费劲）。
+GRIPPER_TEACHING_FRICTION = 1
 ENABLE_TIMEOUT_SECONDS = 3.0
 DISABLE_TIMEOUT_SECONDS = 3.0
 DISABLE_FINAL_CHECK_SECONDS = 1.0
@@ -275,6 +279,14 @@ def _return_one_arm_home(runtime: Runtime, ch: str) -> None:
     set_control_role(runtime, ch, "follower")
     time.sleep(0.2)
     hardware_status.require_ready_for_motion(runtime, ch)
+    # 回位速度：move_j 的速度由 move_spd_rate_ctrl（百分比）决定，默认 50% 已接近全速，
+    # 实测 25% 只慢 0.3s 几乎无感，设 10% 才明显变慢（约慢 2.7 倍）。
+    speed_set = False
+    try:
+        arm.set_speed_percent(10)
+        speed_set = True
+    except Exception as exc:
+        print(f"[回位] {ch} 设置回位速度失败，按默认速度回位：{exc}")
     arm.move_j(HOME_POS[:])
     deadline = time.monotonic() + HOME_TIMEOUT_SECONDS
     settled = 0
@@ -288,9 +300,19 @@ def _return_one_arm_home(runtime: Runtime, ch: str) -> None:
         )
         settled = settled + 1 if idle and at_home else 0
         if settled >= 3:
+            if speed_set:
+                try:
+                    arm.set_speed_percent(50)
+                except Exception:
+                    pass
             runtime.channels[ch]["status"] = "已回默认位置（保持使能）"
             return
         time.sleep(0.1)
+    if speed_set:
+        try:
+            arm.set_speed_percent(50)
+        except Exception:
+            pass
     raise TimeoutError("等待默认位置超时，请检查机械臂状态后重试回位")
 
 
@@ -298,6 +320,7 @@ def _return_home_worker(runtime: Runtime, targets: dict[str, str]) -> None:
     leaders = [ch for ch, label in targets.items() if label.startswith("主")]
     followers = [ch for ch, label in targets.items() if label.startswith("从")]
     ch = leaders[0]
+    order = followers + leaders
     try:
         with ExitStack() as stack:
             for channel in sorted(targets):
@@ -316,9 +339,21 @@ def _return_home_worker(runtime: Runtime, targets: dict[str, str]) -> None:
                 set_control_role(runtime, ch, "follower")
                 runtime.channels[ch]["status"] = "已退出示教，等待回位"
                 time.sleep(0.2)
-            for ch in followers + leaders:
+            runtime.state["home_pending"] = order[:]
+            for index, ch in enumerate(order):
                 runtime.state["home_status"] = f"{targets[ch]} ({ch}) 正在返回默认位置…"
                 _return_one_arm_home(runtime, ch)
+                if index < len(order) - 1:
+                    # 回完一条臂后暂停，等用户按 q 确认再回下一条。
+                    next_ch = order[index + 1]
+                    runtime.state["home_awaiting"] = True
+                    runtime.state["home_status"] = (
+                        f"{targets[ch]} ({ch}) 已回位。按 q 键确认后继续回位 {targets[next_ch]} ({next_ch})"
+                    )
+                    runtime.home_continue_event.clear()
+                    runtime.home_continue_event.wait()
+                    runtime.state["home_awaiting"] = False
+            runtime.state["home_pending"] = []
         runtime.state["home_error"] = None
         runtime.state["home_status"] = "主臂和从臂均已回默认位置，保持使能；再次录制时恢复示教模式"
     except Exception as exc:
@@ -326,6 +361,8 @@ def _return_home_worker(runtime: Runtime, targets: dict[str, str]) -> None:
         runtime.state["home_status"] = f"回位失败: {runtime.state['home_error']}"
         runtime.channels[ch]["status"] = runtime.state["home_status"]
     finally:
+        runtime.state["home_awaiting"] = False
+        runtime.state["home_pending"] = []
         runtime.state["homing"] = False
 
 
@@ -744,7 +781,9 @@ def transition_to_collection(runtime: Runtime) -> list[pairing.Pair]:
 
 def _set_gripper_teaching(gripper: Any) -> bool:
     """设置示教参数；SDK 未确认时以新的参数读回为准，返回是否用了读回兜底。"""
-    expected = {"teaching_range_per": 100, "max_range_config": 0.07, "teaching_friction": 8}
+    # max_range_config 必须与从臂夹爪的物理行程一致（实测均为 100mm）。
+    # 曾误设为 0.07（70mm），导致示教器捏到最大也只输出 70mm，从臂夹爪永远开不满。
+    expected = {"teaching_range_per": 100, "max_range_config": 0.1, "teaching_friction": GRIPPER_TEACHING_FRICTION}
     if gripper.set_gripper_teaching_pendant_param(**expected) is True:
         return False
     # SDK 要求设置 ACK + 参数一致；没有 ACK 时甚至不会发出参数查询。
@@ -771,7 +810,7 @@ def _set_gripper_teaching(gripper: Any) -> bool:
         raise RuntimeError(
             "夹爪示教参数未确认：读回值不匹配"
             f"（比例={actual['teaching_range_per']}%，开口={actual['max_range_config']} m，"
-            f"摩擦={actual['teaching_friction']}；期望 100%、0.07 m、8），未进入主臂示教模式"
+            f"摩擦={actual['teaching_friction']}；期望 100%、0.1 m、{GRIPPER_TEACHING_FRICTION}），未进入主臂示教模式"
         )
     return True
 

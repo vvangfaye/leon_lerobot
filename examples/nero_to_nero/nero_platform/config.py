@@ -89,6 +89,9 @@ def validate_settings(runtime: Runtime, data: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("请选择单对或左右双对采集模式")
     if merged["follow_motion_mode"] not in ("js", "j"):
         raise ValueError("遥操作模式请选择分离控制或底层平滑")
+    force = merged["gripper_force"]
+    if type(force) not in (int, float) or not math.isfinite(force) or not 0.0 <= force <= 32.0:
+        raise ValueError("夹持力必须在 0 到 32 N 之间")
     target_control_hz(merged)
     resolution.validate(merged["camera_resolution"])
     camera_focus.validate_settings(merged["camera_focus_settings"])

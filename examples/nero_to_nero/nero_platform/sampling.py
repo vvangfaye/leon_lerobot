@@ -43,6 +43,16 @@ class RobotFeedback:
                     raise ValueError("数值缺失、维数错误或含 NaN/Inf")
                 if not math.isfinite(stamp) or stamp <= 0:
                     raise ValueError("时间戳无效")
+                if name == "从臂夹爪":
+                    # 夹爪驱动保护态（过流/过载）会静默失能并锁死，运动指令无效；
+                    # 一旦检测到立即停止跟随，避免继续空转顶到极限。
+                    foc = getattr(sample.msg, "foc_status", None)
+                    if foc is not None and getattr(foc, "driver_error_status", False):
+                        raise FeedbackError(
+                            "从臂夹爪驱动错误保护（过流/过载），已停止跟随；请断电重启夹爪后重新连接"
+                        )
+            except FeedbackError:
+                raise
             except Exception as exc:
                 raise FeedbackError(f"{name}反馈无效：{exc}") from exc
             old = self.seen.get(name)

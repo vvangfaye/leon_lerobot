@@ -88,6 +88,12 @@
     <div id="arms"></div>
     <div class="notice">通信、控制模式、关节和夹爪使能、故障分别显示。“未知”表示未收到完整的新反馈，不能据此判断已失能。关闭脚本不会自动失能；重启后先连接并检查状态。</div>
 
+    <div class="teleop-test">
+      <div class="field"><label for="teleop_gripper_force">遥操作夹持力 / N</label><input id="teleop_gripper_force" type="number" min="0" max="32" step="0.5" value="3" onchange="setTeleopGripperForce(this.value)"><div class="muted">遥操作测试时的从臂夹持力，默认 3N，实时生效。</div></div>
+      <div class="row"><button class="go action" id="btn-teleop-test" onclick="toggleTeleopTest()" disabled>遥操作测试</button></div>
+      <div id="teleop-test-status" class="record-detail" aria-live="polite">连接主从臂后可开始只遥操作、不录制数据的训练测试。</div>
+    </div>
+
     <hr class="divider">
         <details id="camera-settings" open><summary>相机分配区 · 检测设备并选择用途</summary>
           <div class="row"><button id="btn-detect-depth" onclick="detectCameras('depth')">检测深度相机</button><button id="btn-detect-rgb" onclick="detectCameras('rgb')">检测 RGB 相机</button></div>
@@ -128,6 +134,7 @@
         </section>
         <div class="field"><label for="fps">数据采样 FPS</label><input id="fps" type="number" min="1" value="30" onchange="renderResolutionControls(); updateTeleopSummary()"></div>
         <div class="field"><label for="episode_sec">每集时长 / 秒</label><input id="episode_sec" type="number" min="0.1" step="0.1" value="60"></div>
+        <div class="field"><label for="gripper_force">从臂夹持力 / N</label><input id="gripper_force" type="number" min="0" max="32" step="0.5" value="10" onchange="setGripperForce(this.value)"><div class="muted">采集中实时生效，无需结束采集。0~32 N，越大夹得越紧，易碎物慎用大值。</div></div>
         <div class="field span-3"><label for="follow_motion_mode">遥操作模式</label><select id="follow_motion_mode" onchange="updateTeleopSummary()"><option value="js">分离控制（低延迟 move_js）</option><option value="j">底层平滑（高延迟 move_j）</option></select></div>
         <div class="field span-3"><label for="control_frequency">控制频率</label><select id="control_frequency" onchange="updateTeleopSummary()"><option value="capture">跟随采集</option><option value="50">50 Hz</option><option value="100" selected>100 Hz</option><option value="150">150 Hz</option><option value="200">200 Hz</option></select><div class="muted">两个模式共用此频率设置。“跟随采集”按数据采样 FPS 下发目标；固定频率分别调度控制和采样。开始采集后锁定，结束采集后可修改。</div></div>
         <div class="notice span-3" id="teleop-summary"></div>
@@ -140,8 +147,8 @@
     <section class="panel stage column" id="prepare-area">
       <div class="section-head"><h2><span class="step">01</span>开始采集</h2></div>
       <div class="checklist"><div id="ready-pair">主从臂：等待状态</div><div id="ready-camera">相机：等待分配</div><div id="ready-state">等待设备检查</div></div>
-      <button class="connect action" id="btn-home" onclick="returnHome()" disabled>主从臂返回默认位置</button>
-      <div class="notice">主从臂正在返回默认位置时，请注意周边环境。目标为第二关节 90°，其余关节 0°；先从臂、后主臂，依次回位。双对顺序为从左、从右、主左、主右。请松开所有主臂，避开全部运动路径。回位后保持使能和夹爪状态，不会自动失能。</div>
+      <button class="connect action" id="btn-home" disabled>主从臂返回默认位置 (r)</button>
+      <div class="notice">主从臂正在返回默认位置时，请注意周边环境。目标关节角 0°、-100°、0°、120°、0°、0°、90°；先从臂、后主臂，逐条回位，每条回位完成后按 q 键确认继续下一条。双对顺序为从左、从右、主左、主右。请松开所有主臂，避开全部运动路径。回位后保持使能和夹爪状态，不会自动失能。</div>
       <div id="home-status" class="record-detail" aria-live="polite"></div>
       <div class="notice">回默认位置是可选操作。准备每一集时可以使用主臂当前位置，不需要手动将主臂对齐从臂；确认后由从臂平缓对齐。</div>
       <hr class="divider">
@@ -163,12 +170,12 @@
         </div>
         <div id="preview-mode">选择录制相机后显示画面。</div>
         <div id="camera-focus-warning" class="warn" hidden></div>
-        <div class="episode-actions"><button class="go action" id="btn-start" onclick="start()" disabled>① 准备一集 (q)</button><button class="connect action" id="btn-stop" onclick="stop()" disabled>结束一集 (s)</button></div>
+        <div class="episode-actions"><button class="go action" id="btn-start" onclick="start()" disabled>① 准备一集 (n)</button><button class="connect action" id="btn-stop" onclick="stop()" disabled>结束一集 (s)</button></div>
         <div class="notice">准备一集后，保持所选主臂静止，确认所有从臂运动路径无障碍；确认后从臂平缓对齐各自主臂当前位置。双对先对齐左侧、再对齐右侧，全部到位并复核后才开始同一集，对齐过程不计入数据。结束一集保存整个片段，两侧一起停止跟随并保持使能，可继续录下一集。</div>
         <div id="start-reminder" hidden>
-          <div class="record-detail">建议主臂尽量回到默认位置（第二关节 90°，其余 0°），也可使用当前位置。双对模式请保持两条主臂静止，直到全部对齐完成；确认两侧路径和臂间空间均无障碍。</div>
+          <div class="record-detail">建议主臂尽量回到默认位置（0°、-100°、0°、120°、0°、0°、90°），也可使用当前位置。双对模式请保持两条主臂静止，直到全部对齐完成；确认两侧路径和臂间空间均无障碍。</div>
           <div class="record-detail">可直接确认跳过准备语音，继续从臂对齐并录制。</div>
-          <div class="row"><button class="go" id="btn-confirm-start" onclick="confirmStart()">② 确认并继续（跳过语音）</button><button onclick="cancelStart()">取消</button></div>
+          <div class="row"><button class="go" id="btn-confirm-start" onclick="confirmStart()">② 确认并继续（跳过语音） (q)</button><button onclick="cancelStart()">取消</button></div>
         </div>
         <button class="action" id="btn-cancel-prepare" onclick="stop()" hidden disabled>取消准备 / 对齐 (s)</button>
         <div id="rec-metrics"></div>
@@ -185,11 +192,11 @@
       </section>
     <section class="panel stage column" id="finish-area">
       <div class="section-head"><h2><span class="step">03</span>结束采集</h2></div>
-      <button class="connect action" id="btn-home-end" onclick="returnHome('btn-home-end')" disabled>主从臂返回默认位置</button>
-      <div class="notice">可先结束一集、等待保存完成，再让主从臂依次回位。第二关节 90°，其余 0°；先从臂、后主臂。请松开主臂并确认运动路径无障碍，注意周边环境。回位后仍保持使能及夹爪状态。</div>
+      <button class="connect action" id="btn-home-end" disabled>主从臂返回默认位置 (r)</button>
+      <div class="notice">可先结束一集、等待保存完成，再让主从臂逐条回位。目标关节角 0°、-100°、0°、120°、0°、0°、90°；先从臂、后主臂，每条回位完成后按 q 键确认继续下一条。请松开主臂并确认运动路径无障碍，注意周边环境。回位后仍保持使能及夹爪状态。</div>
       <div id="home-status-end" class="record-detail" aria-live="polite"></div>
       <hr class="divider">
-      <button class="connect action" id="btn-end-session" onclick="endSession()" disabled>结束采集</button>
+      <button class="connect action" id="btn-end-session" onclick="endSession()" disabled>退出采集</button>
       <div class="notice">结束当前录制并等待数据和视频保存、完成数据收尾、恢复相机预览。不自动回位，不发送失能指令，机械臂仍可能保持使能；此按钮需要等待保存，不是急停。</div>
       <div id="end-status" class="record-detail" aria-live="polite"></div>
       <hr class="divider">
@@ -204,7 +211,7 @@
       <div class="notice">关闭或刷新网页不会结束后台采集，也不会自动失能；操作尚未结束、机械臂仍使能或状态未确认时，浏览器会尝试提醒离开。Ctrl+C 退出脚本仍保持使能。请等待所选主臂、从臂的关节和夹爪均确认失能后，再松手。未知或超时不代表已经失能。</div>
     </section>
 </main>
-<section id="hint" aria-labelledby="hint-title"><h3 id="hint-title">操作说明与快捷键</h3>左侧连接并检查机械臂、分配相机 → 选择单对或左右双对模式、设置数据集并保存配置 → 开始采集 → 准备一集 → 确认从臂对齐并录制 → 结束一集保存 → 按需返回默认位置 → 结束采集 → 托稳后单独确认机械臂失能。<br>q：准备一集；s：取消准备 / 对齐，或结束整集。单对使用所选的两条臂；左右双对需要四个独立通道，固定主左→从左、主右→从右。两侧共用一个软件采样节拍，数据固定左 8 维＋右 8 维，不代表硬件同步。页面预览约 2 FPS，实际采样节拍单独显示。</section>
+<section id="hint" aria-labelledby="hint-title"><h3 id="hint-title">操作说明与快捷键</h3>左侧连接并检查机械臂、分配相机 → 选择单对或左右双对模式、设置数据集并保存配置 → 开始采集 → 准备一集 → 确认从臂对齐并录制 → 结束一集保存 → 按需返回默认位置 → 退出采集 → 托稳后单独确认机械臂失能。<br>n：准备一集；s：取消准备 / 对齐，或结束整集；r：返回默认位置；q：确认弹窗 / 确认并继续。单对使用所选的两条臂；左右双对需要四个独立通道，固定主左→从左、主右→从右。两侧共用一个软件采样节拍，数据固定左 8 维＋右 8 维，不代表硬件同步。页面预览约 2 FPS，实际采样节拍单独显示。</section>
 <dialog id="safety-dialog" aria-labelledby="safety-title" aria-describedby="safety-text" oncancel="event.preventDefault(); finishSafety(false)" onclose="if(!this.open) finishSafety(false)">
   <h2 id="safety-title"></h2>
   <div id="safety-text"></div>
@@ -251,6 +258,7 @@ let endRequestPending = false;
 let startRequestPending = false;
 let startReminderOpen = false;
 let stopRequestPending = false;
+let teleopRequestPending = false;
 const armRequestPending = new Set();
 let commandError = "";
 let latestStatus = null;
@@ -490,7 +498,7 @@ async function replaySafety(){
   const button = document.getElementById("safety-confirm");
   // 语音不阻塞确认：按钮立即可点，语音后台播放，点确认即停止。
   button.disabled = false;
-  button.textContent = pending.label;
+  button.textContent = pending.label + " (q)";
   document.getElementById("safety-audio").textContent = "正在播报提醒；可立即确认，也可等待听完。";
   void voice.say(pending.cue, {critical:true});
 }
@@ -606,7 +614,7 @@ async function armMove(ch){ await runCommand("/api/arm/move/"+ch, ch, "micro", "
 async function armDisable(ch){
   if(safetyPending || document.getElementById("home-"+ch).disabled) return;
   const name = document.getElementById("lb-"+ch).value;
-  if(await safetyConfirm("确认回位后失能", `${name} (${ch})：第二关节 90°，其余关节 0°，到位后失能关节及夹爪。`, "single_home_warning", "确认回位后失能")){
+  if(await safetyConfirm("确认回位后失能", `${name} (${ch})：关节角 0°、-100°、0°、120°、0°、0°、90°，到位后失能关节及夹爪。`, "single_home_warning", "确认回位后失能")){
     await runCommand("/api/arm/disable/"+ch, ch, "single_home", "single_home_started");
   }
 }
@@ -960,6 +968,40 @@ async function retryClose(stage, ch){
   }catch(error){ operationError(error); }
   finally{ disableRequestPending = false; await refresh(); }
 }
+async function toggleTeleopTest(){
+  const button = document.getElementById("btn-teleop-test");
+  if(button.disabled || teleopRequestPending || safetyPending) return;
+  const status = await getJson("/api/status").catch(()=>null);
+  if(!status) return;
+  const active = !!status.teleop_test_active;
+  teleopRequestPending = true;
+  button.disabled = true;
+  try{
+    if(active){
+      await post("/api/teleop/test/stop");
+    }else{
+      if(status.connected) throw new Error("已开启采集会话，请先退出采集。");
+      await post("/api/teleop/test/start");
+    }
+  }catch(error){ operationError(error); }
+  finally{ teleopRequestPending = false; await refresh(); }
+}
+async function setGripperForce(value){
+  const num = parseFloat(value);
+  if(!Number.isFinite(num)) return;
+  try{
+    const result = await post("/api/gripper/force", {force:num});
+    document.getElementById("gripper_force").value = result.force;
+  }catch(error){ operationError(error); await refresh(); }
+}
+async function setTeleopGripperForce(value){
+  const num = parseFloat(value);
+  if(!Number.isFinite(num)) return;
+  try{
+    const result = await post("/api/teleop/gripper/force", {force:num});
+    document.getElementById("teleop_gripper_force").value = result.force;
+  }catch(error){ operationError(error); await refresh(); }
+}
 async function returnHome(buttonId = "btn-home"){
   const button = document.getElementById(buttonId);
   if(button.disabled || homeRequestPending || safetyPending) return;
@@ -974,9 +1016,17 @@ async function returnHome(buttonId = "btn-home"){
   button.disabled = true;
   document.getElementById("btn-start").disabled = true;
   try{
-    if(!await safetyConfirm("确认主从臂返回默认位置", `操作对象：${names}，共 ${Object.keys(targets).length} 条臂。\n第二关节 90°，其余关节 0°；先从臂、后主臂依次回位，保持使能和夹爪状态。请松开所选主臂，避开所有运动路径。`, "home_warning", "确认返回默认位置")) return;
+    if(!await safetyConfirm("确认主从臂返回默认位置", `操作对象：${names}，共 ${Object.keys(targets).length} 条臂。\n关节角 0°、-100°、0°、120°、0°、0°、90°；先从臂、后主臂依次回位，保持使能和夹爪状态。请松开所选主臂，避开所有运动路径。`, "home_warning", "确认返回默认位置")) return;
     await saveSilent();
     await post("/api/pair/home", {targets});
+  }catch(error){ operationError(error); }
+  finally{ homeRequestPending = false; await refresh(); }
+}
+async function continueReturnHome(){
+  if(homeRequestPending) return;
+  homeRequestPending = true;
+  try{
+    await post("/api/pair/home/continue");
   }catch(error){ operationError(error); }
   finally{ homeRequestPending = false; await refresh(); }
 }
@@ -1032,6 +1082,14 @@ async function refresh(){
     refreshApplied = requestId;
     statusAvailable = true;
     latestStatus = s;
+    const forceInput = document.getElementById("gripper_force");
+    if(forceInput && document.activeElement !== forceInput && Number.isFinite(s.gripper_force)){
+      forceInput.value = s.gripper_force;
+    }
+    const teleopForceInput = document.getElementById("teleop_gripper_force");
+    if(teleopForceInput && document.activeElement !== teleopForceInput && Number.isFinite(s.teleop_gripper_force)){
+      teleopForceInput.value = s.teleop_gripper_force;
+    }
     // 动态同步实际检测到的 CAN 通道（重插后数量/名字可能变化）
     const detectedChannels = Object.keys(s.arms || {});
     if(detectedChannels.length && detectedChannels.join(",") !== CH.join(",")){
@@ -1084,23 +1142,31 @@ async function refresh(){
     const motionBlocked = !!s.config_error || !!s.recovery_required;
     document.getElementById("system-warning").hidden = !motionBlocked && !s.camera_config_notice;
     document.getElementById("system-warning").textContent = s.config_error || s.recovery_required || s.camera_config_notice || "";
-    const busy = !!safetyPending || !!cameraFocus.pending || resolutionsPending || s.homing || homeRequestPending || s.ending || endRequestPending || sessionRequestPending || s.disabling || disableRequestPending || startRequestPending || armRequestPending.size > 0 || s.device_busy.length > 0;
+    const busy = !!safetyPending || !!cameraFocus.pending || resolutionsPending || s.homing || homeRequestPending || s.ending || endRequestPending || sessionRequestPending || s.disabling || disableRequestPending || startRequestPending || teleopRequestPending || armRequestPending.size > 0 || s.device_busy.length > 0 || !!s.teleop_test_active;
     const homeReady = labels.every(label=>{
       const channels = CH.filter(ch=>s.arms[ch].label === label);
       return channels.length === 1 && s.arms[channels[0]].detected;
     });
     const unfinished = !!s.disable_error || !!s.close_error;
     const pairFault = CH.some(ch=>labels.includes(s.arms[ch].label) && s.arms[ch].hardware?.health.state === "fault");
-    document.getElementById("btn-home").disabled = motionBlocked || !homeReady || s.recording || busy || unfinished || pairFault;
-    document.getElementById("btn-home").textContent = s.homing ? "主从臂依次回位中…" : "主从臂返回默认位置";
+    // 回位等待确认时，按钮可点（点击继续回位下一条），其余回位阶段保持禁用。
+    document.getElementById("btn-home").disabled = s.home_awaiting ? false : (motionBlocked || !homeReady || s.recording || busy || unfinished || pairFault);
+    document.getElementById("btn-home").textContent = s.homing ? (s.home_awaiting ? "按 q 继续回位下一条臂…" : "主从臂依次回位中…") : "主从臂返回默认位置 (r)";
+    document.getElementById("btn-home").onclick = s.home_awaiting ? continueReturnHome : ()=>returnHome();
     document.getElementById("btn-home-end").disabled = document.getElementById("btn-home").disabled;
     document.getElementById("btn-home-end").textContent = document.getElementById("btn-home").textContent;
+    document.getElementById("btn-home-end").onclick = s.home_awaiting ? continueReturnHome : ()=>returnHome("btn-home-end");
     const preparing = ["preparing", "aligning"].includes(rec.phase);
     document.getElementById("btn-end-session").disabled = busy || !s.connected || (s.recording && preparing) || unfinished;
-    document.getElementById("btn-end-session").textContent = s.ending || endRequestPending ? "正在完成数据收尾…" : "结束采集";
+    document.getElementById("btn-end-session").textContent = s.ending || endRequestPending ? "正在完成数据收尾…" : "退出采集";
     document.getElementById("end-status").textContent = s.end_status || "";
     document.getElementById("btn-disconnect").disabled = busy || s.connected || s.recording || !homeReady || !!s.disable_error;
     document.getElementById("btn-disconnect").textContent = s.disabling ? "正在确认失能…" : (s.disable_error ? "请处理下方未完成失能项" : "机械臂失能");
+    const teleopActive = !!s.teleop_test_active;
+    const teleopBusy = busy && !teleopActive;  // 遥操作测试进行中自身按钮仍可点（用于停止）
+    document.getElementById("btn-teleop-test").disabled = teleopActive ? teleopRequestPending : (teleopBusy || !homeReady || s.connected || s.recording || motionBlocked || unfinished);
+    document.getElementById("btn-teleop-test").textContent = teleopActive ? "停止遥操作测试" : "遥操作测试";
+    document.getElementById("teleop-test-status").textContent = teleopActive ? s.teleop_test_message : "连接主从臂后可开始只遥操作、不录制数据的训练测试。";
     document.getElementById("disable-status").textContent = s.disable_status || "";
     const closing = s.close_result;
     document.getElementById("close-result").hidden = !closing;
@@ -1131,7 +1197,7 @@ async function refresh(){
     document.getElementById("btn-start").disabled = cannotStart || startReminderOpen;
     document.getElementById("btn-confirm-start").disabled = cannotStart;
     if(s.recording || s.disabling || s.ending){ startReminderOpen = false; document.getElementById("start-reminder").hidden = true; }
-    document.getElementById("btn-start").textContent = preparing && s.recording ? (rec.phase === "aligning" ? "从臂对齐中…" : "准备中…") : "① 准备一集 (q)";
+    document.getElementById("btn-start").textContent = preparing && s.recording ? (rec.phase === "aligning" ? "从臂对齐中…" : "准备中…") : "① 准备一集 (n)";
     document.getElementById("btn-stop").disabled = !startReminderOpen && (!s.recording || !["preparing","aligning","recording"].includes(rec.phase) || rec.stop_requested || stopRequestPending || s.disabling || s.ending || endRequestPending);
     document.getElementById("btn-stop").textContent = startReminderOpen || preparing ? (rec.phase === "aligning" ? "取消对齐 (s)" : "取消准备 (s)") : (rec.phase === "saving" ? "正在保存…" : (rec.phase === "stopping" ? "正在结束…" : "结束一集 (s)"));
     document.getElementById("btn-cancel-prepare").hidden = !startReminderOpen && !preparing;
@@ -1235,9 +1301,27 @@ addEventListener("beforeunload", event=>{
 });
 
 document.addEventListener("keydown", e=>{
-  if(safetyPending || e.repeat || e.target.closest("input,textarea,select,[contenteditable]")) return;
-  if(e.key==="q"||e.key==="Q"){ e.preventDefault(); start(); }
+  if(e.repeat) return;
+  // 回位等待确认：即使焦点在输入框里，也允许 q 继续（避免焦点拦截导致回位卡住）。
+  if((e.key==="q"||e.key==="Q") && latestStatus?.home_awaiting){
+    e.preventDefault();
+    continueReturnHome();
+    return;
+  }
+  if(e.target.closest("input,textarea,select,[contenteditable]")) return;
+  // q = 确认：有弹窗时确认弹窗，有准备确认框时确认并继续；无确认框则无动作
+  if(e.key==="q"||e.key==="Q"){
+    e.preventDefault();
+    if(safetyPending){ finishSafety(true); return; }
+    if(startReminderOpen){ confirmStart(); return; }
+    if(latestStatus?.home_awaiting){ continueReturnHome(); return; }
+    return;
+  }
+  // 其余快捷键：有确认弹窗时拦截，避免误触
+  if(safetyPending) return;
+  if(e.key==="n"||e.key==="N"){ e.preventDefault(); start(); }
   if(e.key==="s"||e.key==="S"){ e.preventDefault(); stop(); }
+  if(e.key==="r"||e.key==="R"){ e.preventDefault(); returnHome(); }
 });
 
 async function poll(){
