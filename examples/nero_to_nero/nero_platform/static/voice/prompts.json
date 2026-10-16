@@ -59,6 +59,9 @@
     "teleop_test_align": "从臂正在对齐主臂，请保持主臂静止。",
     "teleop_test_ready": "对齐完成。请拖动主臂，从臂将实时跟随，不录制数据。",
     "teleop_test_stopped": "遥操作测试已停止，机械臂保持使能。",
-    "home_continue": "本条臂已回位，按 q 键确认继续回位下一条臂。"
+    "home_continue": "本条臂已回位，按 q 键确认继续回位下一条臂。",
+    "cancel_recording": "正在取消本集，已录帧将被丢弃，本集不会保存。",
+    "delete_last_warning": "即将删除最近保存的一集。视频、帧数据、集元数据和节拍报告都会被移除，集数减一。此操作不可恢复，请确认。",
+    "deleted": "上一集已删除。"
   }
 }

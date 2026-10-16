@@ -52,6 +52,9 @@ function setup(sharedStorage = null, initialized = true) {
       else if(url==='/api/pair/home') status.homing=true;
       else if(url==='/api/record/start') {status.recording=true;status.record.phase='preparing';}
       else if(url==='/api/record/stop') {status.record.phase='stopping';status.record.stop_requested=true;}
+      else if(url==='/api/record/cancel') {status.record.phase='cancelling';status.record.cancel_requested=true;status.record.stop_requested=true;}
+      else if(url==='/api/record/delete-last/preview') result={ok:true,target:{repo_id:'nero/test',episode_index:2,frames:300,revision:'confirmed-version'}};
+      else if(url==='/api/record/delete-last') {status.disk_episode_count=2;status.episode_count=2;status.record.last_episode=null;}
       else if(url==='/api/collection/end') {status.connected=false;status.recording=false;status.end_status='采集已结束，未执行失能';}
       else if(url==='/api/connect') status.connected=true;
       return {ok:true,json:async()=>result};
@@ -271,14 +274,14 @@ function setup(sharedStorage = null, initialized = true) {
     assert.deepEqual(h.requests.map(r=>r.url),['/api/save','/api/record/start']);
     assert.match(h.audio.at(-1).url,/preparing/,'后续阶段仍正常播报');
   }
-  // 等待提示期间、取消后、快捷键触发均不发送回位命令。
+  // 等待提示期间、取消后、非确认快捷键均不发送回位命令（q 是明确确认）。
   {
     const h=setup(); await h.context.refresh();
     const pending=h.context.returnHome();
     assert.equal(h.element('safety-dialog').open,true);
     assert.match(h.audio.at(-1).url,/home_warning/);
     assert.equal(h.element('safety-confirm').disabled,false,'现有行为允许跳过语音，取消路径不点击确认');
-    h.events.keydown({key:'q',target:{closest:()=>false},preventDefault(){}});
+    h.events.keydown({key:'s',target:{closest:()=>false},preventDefault(){}});
     await h.context.returnHome();
     assert.equal(h.requests.length,0);
     h.context.finishSafety(false); await pending;
@@ -292,7 +295,8 @@ function setup(sharedStorage = null, initialized = true) {
     h.audio.at(-1).end(); await flush();
     assert.equal(h.element('safety-confirm').disabled,false);
     assert.equal(h.requests.length,0);
-    h.context.finishSafety(true); h.context.finishSafety(true); await pending;
+    h.events.keydown({key:'q',target:{closest:()=>false},preventDefault(){}});
+    h.context.finishSafety(true); await pending;
     assert.deepEqual(h.requests.map(r=>r.url),['/api/save','/api/pair/home']);
     assert.match(h.audio.at(-1).url,/home_started/);
     h.status.homing=false; h.status.home_status='均已回默认位置'; await h.context.refresh();
@@ -483,6 +487,37 @@ function setup(sharedStorage = null, initialized = true) {
     h.context.document.hasFocus=()=>false;
     assert.equal(await h.voice.say('home_done'),'suppressed');assert.equal(h.audio.length,0);
     h.context.document.hasFocus=()=>true;void h.voice.say('home_done');assert.equal(h.audio.length,1);
+  }
+  // 取消有独立状态：不播保存或无有效帧，清理完成后按钮恢复文案。
+  {
+    const h=setup();h.status.recording=true;h.status.record.phase='recording';
+    await h.context.refresh();
+    assert.equal(h.element('btn-cancel-record').disabled,false);
+    await h.context.cancelRecord();
+    assert.deepEqual(h.requests.map(r=>r.url),['/api/record/cancel']);
+    assert.match(h.audio.at(-1).url,/cancel_recording/);
+    assert.equal(h.element('btn-stop').disabled,true);
+    h.status.recording=false;h.status.record.phase='cancelled';h.status.record.cancel_requested=false;
+    await h.context.refresh();
+    assert.equal(h.element('btn-cancel-record').textContent,'中途取消本集');
+    assert.equal(h.element('phase-badge').textContent,'已取消 · 未保存');
+    assert.equal(h.audio.some(a=>/\/(saving|saved|empty_episode)\.mp3/.test(a.url)),false);
+  }
+  // 预检在确认之前；提交固定目标，后续状态刷新不能悄悄改变删除集号。
+  {
+    const h=setup();h.status.connected=false;h.status.disk_episode_count=3;
+    await h.context.refresh();
+    assert.equal(h.element('btn-delete-last').disabled,false);
+    const pending=h.context.deleteLastEpisode();await flush();
+    await h.context.deleteLastEpisode();
+    assert.deepEqual(h.requests.map(r=>r.url),['/api/record/delete-last/preview']);
+    assert.match(h.element('safety-text').textContent,/nero\/test.*\n.*第 3 集（300 帧）/);
+    h.status.disk_episode_count=2;await h.context.refresh();
+    assert.equal(h.element('btn-session-start').disabled,true);
+    h.context.finishSafety(true);await pending;
+    assert.deepEqual(h.requests.map(r=>r.url),['/api/record/delete-last/preview','/api/record/delete-last']);
+    assert.deepEqual(h.requests[1].body,{repo_id:'nero/test',episode_index:2,frames:300,revision:'confirmed-version'});
+    assert.match(h.audio.at(-1).url,/deleted/);
   }
   console.log('语音播放、多窗口独占播报、状态播报、危险操作确认、取消/快捷键/重复点击/播放失败检查通过（模拟浏览器，无设备命令）。');
 })().catch(error=>{console.error(error);process.exitCode=1;});

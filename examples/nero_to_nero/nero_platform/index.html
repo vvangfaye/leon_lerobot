@@ -171,6 +171,8 @@
         <div id="preview-mode">选择录制相机后显示画面。</div>
         <div id="camera-focus-warning" class="warn" hidden></div>
         <div class="episode-actions"><button class="go action" id="btn-start" onclick="start()" disabled>① 准备一集 (n)</button><button class="connect action" id="btn-stop" onclick="stop()" disabled>结束一集 (s)</button></div>
+        <div class="episode-actions secondary"><button class="warn action" id="btn-cancel-record" onclick="cancelRecord()" disabled>中途取消本集</button><button class="danger action" id="btn-delete-last" onclick="deleteLastEpisode()" disabled>删除上一条</button></div>
+        <div class="notice">中途取消本集会丢弃已录帧，不保存、不增加集数；机械臂保持使能。删除上一条须先结束采集并完成数据收尾，仅支持本集每路视频均未被其他集共用的数据。删除成功后不可撤销，建议先备份。</div>
         <div class="notice">准备一集后，保持所选主臂静止，确认所有从臂运动路径无障碍；确认后从臂平缓对齐各自主臂当前位置。双对先对齐左侧、再对齐右侧，全部到位并复核后才开始同一集，对齐过程不计入数据。结束一集保存整个片段，两侧一起停止跟随并保持使能，可继续录下一集。</div>
         <div id="start-reminder" hidden>
           <div class="record-detail">建议主臂尽量回到默认位置（0°、-100°、0°、120°、0°、0°、90°），也可使用当前位置。双对模式请保持两条主臂静止，直到全部对齐完成；确认两侧路径和臂间空间均无障碍。</div>
@@ -258,6 +260,8 @@ let endRequestPending = false;
 let startRequestPending = false;
 let startReminderOpen = false;
 let stopRequestPending = false;
+let cancelRequestPending = false;
+let deleteLastRequestPending = false;
 let teleopRequestPending = false;
 const armRequestPending = new Set();
 let commandError = "";
@@ -1073,6 +1077,31 @@ async function stop(){
   catch(error){ operationError(error); }
   finally{ stopRequestPending = false; await refresh(); }
 }
+async function cancelRecord(){
+  if(safetyPending || cancelRequestPending) return;
+  const button = document.getElementById("btn-cancel-record");
+  if(button.disabled) return;
+  cancelRequestPending = true;
+  button.disabled = true;
+  try{
+    await post("/api/record/cancel");
+  }catch(error){ operationError(error); }
+  finally{ cancelRequestPending = false; await refresh(); }
+}
+async function deleteLastEpisode(){
+  if(safetyPending || deleteLastRequestPending) return;
+  const button = document.getElementById("btn-delete-last");
+  if(button.disabled) return;
+  deleteLastRequestPending = true;
+  button.disabled = true;
+  try{
+    const {target} = await post("/api/record/delete-last/preview");
+    if(!await safetyConfirm("确认删除上一条", `数据集：${target.repo_id}\n将物理删除第 ${target.episode_index + 1} 集（${target.frames} 帧）：视频、帧数据、集元数据和节拍报告全部移除，集数减 1。成功删除后不可恢复。删除前建议自行备份数据集目录。`, "delete_last_warning", "确认删除")) return;
+    const result = await post("/api/record/delete-last", target);
+    if(result.ok) void voice.say("deleted");
+  }catch(error){ operationError(error); }
+  finally{ deleteLastRequestPending = false; await refresh(); }
+}
 
 async function refresh(){
   const requestId = ++refreshRequested;
@@ -1142,7 +1171,7 @@ async function refresh(){
     const motionBlocked = !!s.config_error || !!s.recovery_required;
     document.getElementById("system-warning").hidden = !motionBlocked && !s.camera_config_notice;
     document.getElementById("system-warning").textContent = s.config_error || s.recovery_required || s.camera_config_notice || "";
-    const busy = !!safetyPending || !!cameraFocus.pending || resolutionsPending || s.homing || homeRequestPending || s.ending || endRequestPending || sessionRequestPending || s.disabling || disableRequestPending || startRequestPending || teleopRequestPending || armRequestPending.size > 0 || s.device_busy.length > 0 || !!s.teleop_test_active;
+    const busy = !!safetyPending || !!cameraFocus.pending || resolutionsPending || s.homing || homeRequestPending || s.ending || endRequestPending || sessionRequestPending || s.disabling || disableRequestPending || startRequestPending || teleopRequestPending || armRequestPending.size > 0 || s.device_busy.length > 0 || !!s.teleop_test_active || s.deleting || deleteLastRequestPending;
     const homeReady = labels.every(label=>{
       const channels = CH.filter(ch=>s.arms[ch].label === label);
       return channels.length === 1 && s.arms[channels[0]].detected;
@@ -1202,7 +1231,17 @@ async function refresh(){
     document.getElementById("btn-stop").textContent = startReminderOpen || preparing ? (rec.phase === "aligning" ? "取消对齐 (s)" : "取消准备 (s)") : (rec.phase === "saving" ? "正在保存…" : (rec.phase === "stopping" ? "正在结束…" : "结束一集 (s)"));
     document.getElementById("btn-cancel-prepare").hidden = !startReminderOpen && !preparing;
     document.getElementById("btn-cancel-prepare").disabled = document.getElementById("btn-stop").disabled;
-    const phases = {idle:"待机",preparing:"准备中",aligning:"从臂对齐",recording:"录制中",stopping:"结束中",saving:"保存中",saved:"已保存",saved_review:"已保存 · 需复核",error:"需处理"};
+    // 中途取消：只在录制进行中（recording）可用，丢弃当前集不保存。
+    const recordingActive = s.recording && rec.phase === "recording" && !rec.stop_requested;
+    document.getElementById("btn-cancel-record").disabled = !recordingActive || rec.cancel_requested || cancelRequestPending || s.disabling || s.ending || endRequestPending;
+    document.getElementById("btn-cancel-record").textContent = rec.cancel_requested ? "正在取消本集…" : "中途取消本集";
+    // 删除上一条：只在数据收尾后（未连接、无数据集会话）且磁盘上确有已保存的集时可用。
+    // 未连接时用磁盘 info.json 的集数（刚进平台内存 episode_count 仍是 0）。
+    const diskCount = s.connected ? s.episode_count : (Number.isInteger(s.disk_episode_count) ? s.disk_episode_count : s.episode_count);
+    const deletable = !s.connected && !s.recording && !busy && (diskCount > 0 || s.dataset_edit_pending);
+    document.getElementById("btn-delete-last").disabled = !deletable || s.deleting || deleteLastRequestPending || unfinished;
+    document.getElementById("btn-delete-last").textContent = s.deleting ? "正在处理数据…" : (s.dataset_edit_pending ? "恢复上次删除" : "删除上一条");
+    const phases = {idle:"待机",preparing:"准备中",aligning:"从臂对齐",recording:"录制中",stopping:"结束中",cancelling:"取消中",cancelled:"已取消 · 未保存",saving:"保存中",saved:"已保存",saved_review:"已保存 · 需复核",error:"需处理"};
     document.getElementById("phase-badge").textContent = s.ending ? "数据收尾中" : (s.disabling ? "失能确认中" : (s.homing ? "回位中" : (startReminderOpen ? "等待确认" : (rec.writer_error ? "保存异常 · 暂停续录" : phases[rec.phase] || rec.phase))));
     document.getElementById("phase-badge").className = "badge "+(rec.phase === "recording" ? "recording" : (rec.phase === "error" || unfinished ? "error" : (rec.phase === "saved_review" ? "review" : "")));
     document.getElementById("ready-pair").textContent = `${homeReady ? "✓" : "○"} ${dual ? "左右双对：主左 → 从左；主右 → 从右" : `单对：${selection.leader_label} → ${selection.follower_label}`}${homeReady ? "，已连接" : "，请检查全部连接与唯一角色分配"}`;
@@ -1232,7 +1271,7 @@ async function refresh(){
       if(name.endsWith("_depth")) document.getElementById("rec-timing").textContent += ` 深度全无效 ${stats.all_invalid_frames || 0} 帧，含超 10 米数值 ${stats.above_range_frames || 0} 帧。${rgbdTimingSummary(stats)}`;
     }
     document.getElementById("timing-warning").textContent = [...(timing?.warnings || []), ...(control?.warnings || []), ...(rec.timing_report_error ? [rec.timing_report_error] : [])].join("；");
-    document.getElementById("rec-total").textContent = `当前数据集已录 ${s.episode_count} 集`;
+    document.getElementById("rec-total").textContent = `当前数据集已录 ${diskCount} 集`;
     const last = rec.last_episode;
     document.getElementById("last-summary").textContent = last ? `最近保存：第 ${last.number} 集 · ${last.frames} 帧 · ${last.elapsed_seconds.toFixed(1)} 秒` : "本次运行尚未保存";
     document.getElementById("rec-last").textContent = last ? `最近保存：${last.repo_id} · 第 ${last.number} 集 · ${last.frames} 帧 · 录制 ${last.elapsed_seconds.toFixed(1)} 秒`+(last.timing ? ` · 实测 ${number(last.timing.effective_fps)} FPS · 按数据集 FPS 播放 ${number(last.timing.nominal_playback_seconds)} 秒` : "")+(last.timing_report ? `。节拍报告：${last.timing_report}` : "") : "尚无本次运行的保存结果";
@@ -1284,9 +1323,9 @@ async function refresh(){
 // 离开页面只提醒，绝不在卸载事件中结束采集或使能/失能。
 function shouldWarnBeforeLeave(){
   const s = latestStatus;
-  if(safetyPending || startReminderOpen || homeRequestPending || disableRequestPending || sessionRequestPending || endRequestPending || startRequestPending || stopRequestPending || armRequestPending.size) return true;
+  if(safetyPending || startReminderOpen || homeRequestPending || disableRequestPending || sessionRequestPending || endRequestPending || startRequestPending || stopRequestPending || cancelRequestPending || deleteLastRequestPending || armRequestPending.size) return true;
   if(!s) return false;
-  if(s.connected || s.recording || s.homing || s.disabling || s.ending || s.device_busy.length || s.disable_error || s.close_error || s.recovery_required || s.record.writer_error) return true;
+  if(s.connected || s.recording || s.homing || s.disabling || s.ending || s.deleting || s.dataset_edit_pending || s.device_busy.length || s.disable_error || s.close_error || s.recovery_required || s.record.writer_error) return true;
   return Object.values(s.arms).some(arm=>{
     const h = arm.hardware;
     // 曾连接的设备若反馈未知，同样需要提醒，不能推断为已失能。

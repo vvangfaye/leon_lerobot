@@ -4,6 +4,8 @@ import json
 import threading
 import time
 import traceback
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +14,19 @@ from lerobot.configs.video import DepthEncoderConfig
 from lerobot.datasets import LeRobotDataset
 from lerobot.utils.feature_utils import combine_feature_dicts, hw_to_dataset_features
 
-from . import camera_focus, camera_io, cameras, depth_images, devices, pairing, resolution, sampling, timing
+from . import (
+    camera_focus,
+    camera_io,
+    cameras,
+    dataset_edit,
+    dataset_transaction,
+    depth_images,
+    devices,
+    pairing,
+    resolution,
+    sampling,
+    timing,
+)
 from .camera_model import is_depth, stream_names
 from .runtime import Runtime, target_control_hz
 
@@ -22,6 +36,32 @@ def dataset_path(runtime: Runtime) -> Path:
     if len(parts) != 2 or any(part in ("", ".", "..") for part in parts):
         raise ValueError("数据集名需要为 owner/name，例如 nero/platform_step1")
     return runtime.dataset_root.joinpath(*parts)
+
+
+def disk_episode_count(runtime: Runtime) -> int | None:
+    """未连接时直接读磁盘 info.json 的集数；数据集不存在或无效时返回 None。
+
+    用于「删除上一条」按钮：刚进平台尚未开始采集时，内存里的 episode_count
+    仍是 0，不能反映磁盘上已有多少集。
+    """
+    try:
+        info_path = dataset_path(runtime) / "meta/info.json"
+        if not info_path.is_file():
+            return None
+        info = json.loads(info_path.read_text(encoding="utf-8"))
+        total = info.get("total_episodes")
+        if type(total) is not int or total < 0:
+            return None
+        return total
+    except (OSError, ValueError):
+        return None
+
+
+def dataset_edit_pending(runtime: Runtime) -> bool:
+    try:
+        return dataset_transaction.pending(dataset_path(runtime))
+    except ValueError:
+        return False
 
 
 def make_features(
@@ -48,6 +88,7 @@ def validate_resume(root: Path, fps: int, features: dict) -> None:
     """在切换硬件模式之前，拒绝向不兼容或不完整的本地目录续录。"""
     if not root.exists():
         return
+    dataset_transaction.recover(root)
     info_path = root / "meta/info.json"
     if not info_path.is_file():
         raise ValueError(f"已有目录不是完整的 LeRobot 数据集，请换一个数据集名：{root}")
@@ -332,7 +373,9 @@ def _teleop_test_loop(runtime: Runtime) -> None:
                         follower["arm"].move_j(action[:7])
                     else:
                         follower["arm"].move_js(action[:7])
-                    follower["gripper"].move_gripper_m(value=action[7], force=runtime.state["teleop_gripper_force"])
+                    follower["gripper"].move_gripper_m(
+                        value=action[7], force=runtime.state["teleop_gripper_force"]
+                    )
                 control.finish(control_slot, started, time.monotonic(), control.frames, None)
             except (sampling.FeedbackError, sampling.CommandError) as exc:
                 with runtime.lifecycle_lock:
@@ -383,6 +426,7 @@ def start_recording(runtime: Runtime) -> tuple[bool, str]:
         runtime.record_preview = {}
         runtime.state.update(
             stop_requested=False,
+            cancel_requested=False,
             last_error=None,
             recording=True,
             record_phase="preparing",
@@ -450,6 +494,8 @@ def _prepare_and_record(runtime: Runtime) -> None:
 def request_stop(runtime: Runtime) -> tuple[bool, str]:
     with runtime.lifecycle_lock:
         phase = runtime.state["record_phase"]
+        if phase == "cancelling":
+            return True, "正在取消本集，等待清理完成；本集不会保存"
         if phase == "saving":
             return True, "本集正在保存，请等待完成"
         if not runtime.state["recording"]:
@@ -468,18 +514,38 @@ def request_stop(runtime: Runtime) -> tuple[bool, str]:
         return True, message
 
 
+def request_cancel(runtime: Runtime) -> tuple[bool, str]:
+    """录制进行中丢弃当前这一集，不保存；区别于 request_stop（结束并保存）。"""
+    with runtime.lifecycle_lock:
+        phase = runtime.state["record_phase"]
+        if phase == "cancelling" and runtime.state["cancel_requested"]:
+            return True, "正在取消本集，请等待清理完成"
+        if not runtime.state["recording"] or phase != "recording" or runtime.state["stop_requested"]:
+            return False, "只有正在录制的一集可以取消；已结束或开始保存的集不能取消"
+        runtime.state["cancel_requested"] = True
+        runtime.state["stop_requested"] = True
+        runtime.state["record_phase"] = "cancelling"
+        runtime.state["record_message"] = "正在取消本集并丢弃已录帧…"
+        return True, "已请求中途取消，本集将不保存"
+
+
 def recording_status(runtime: Runtime) -> dict:
     """一次快照供页面使用；保存时冻结录制时长，不把编码时间算入本集。"""
     with runtime.lifecycle_lock:
         state = runtime.state
         elapsed = state["record_elapsed"]
-        if state["record_started_at"] is not None and state["record_phase"] in ("recording", "stopping"):
+        if state["record_started_at"] is not None and state["record_phase"] in (
+            "recording",
+            "stopping",
+            "cancelling",
+        ):
             elapsed = max(0.0, time.monotonic() - state["record_started_at"])
         return {
             "busy": state["recording"],
             "episode_count": state["episode_count"],
             "phase": state["record_phase"],
             "stop_requested": state["stop_requested"],
+            "cancel_requested": state["cancel_requested"],
             "message": state["record_message"],
             "frames": state["record_frames"],
             "elapsed_seconds": round(elapsed, 1),
@@ -719,7 +785,7 @@ def record_worker(runtime: Runtime, camera_names: list[str]) -> None:
             runtime.state.update(record_phase="error", record_message=message, last_error=message)
     finally:
         with runtime.lifecycle_lock:
-            runtime.state.update(recording=False, record_started_at=None)
+            runtime.state.update(recording=False, record_started_at=None, cancel_requested=False)
 
 
 def _inspect_camera_focus(runtime: Runtime, camera_names: list[str], stage: str) -> dict:
@@ -943,15 +1009,39 @@ def _record_episode(runtime: Runtime, camera_names: list[str]) -> None:
         runtime.state["record_timing"] = cadence.summary(runtime.state["record_elapsed"])
         runtime.state["record_timing"]["warnings"].extend(camera_focus.audit_warnings(focus_checks))
         runtime.state["control_timing"] = control.control_summary(runtime.state["record_elapsed"])
-    if not runtime.dataset.has_pending_frames():
+    has_frames = runtime.dataset.has_pending_frames()
+    with runtime.lifecycle_lock:
+        # 取消决策与封闭保存入口必须是同一个临界区。
+        cancelled = runtime.state["cancel_requested"]
+        if not cancelled:
+            runtime.state.update(
+                record_phase="saving" if has_frames else "idle",
+                record_message="正在保存本集数据和视频，请稍候…"
+                if has_frames
+                else "本集尚无有效帧，未新增集",
+            )
+    if cancelled:
+        runtime.dataset.clear_episode_buffer()
+        with runtime.lifecycle_lock:
+            runtime.state.update(
+                record_phase="cancelled",
+                record_message="本集已取消，已录帧已丢弃，未保存；机械臂保持使能"
+                + (f"；机械臂状态需处理：{aborted}" if aborted else ""),
+                record_frames=0,
+                record_elapsed=0.0,
+                cancel_requested=False,
+                record_timing=None,
+                control_timing=None,
+                last_error=aborted,
+            )
+        runtime.record_preview = {}
+        return
+    if not has_frames:
         if aborted:
             raise sampling.FeedbackError(aborted)
         if runtime.state["stop_requested"]:
-            runtime.state.update(record_phase="idle", record_message="本集尚无有效帧，已结束，未新增集")
             return
         raise RuntimeError("本集没有有效帧，未保存；请查看采集终端的错误")
-    with runtime.lifecycle_lock:
-        runtime.state.update(record_phase="saving", record_message="正在保存本集数据和视频，请稍候…")
     episode_index = runtime.state["episode_count"]
     try:
         runtime.dataset.save_episode()
@@ -1051,3 +1141,53 @@ def _record_episode(runtime: Runtime, camera_names: list[str]) -> None:
             record_message=message,
         )
     print(f"第 {runtime.state['episode_count']} 集已保存")
+
+
+@contextmanager
+def _dataset_edit_session(runtime: Runtime) -> Iterator[tuple[Path, str]]:
+    """仅管理平台互斥，文件格式和恢复逻辑交给独立模块。"""
+    with runtime.lifecycle_lock:
+        if runtime.operation_busy():
+            raise ValueError("平台正在执行操作，请等待完成")
+        if runtime.state["connected"] or runtime.dataset is not None:
+            raise ValueError("请先结束采集并完成数据收尾，再删除上一集")
+        root, repo_id = dataset_path(runtime), runtime.state["repo_id"]
+        runtime.state["deleting"] = True
+    try:
+        dataset_transaction.recover(root)
+        yield root, repo_id
+    finally:
+        with runtime.lifecycle_lock:
+            runtime.state["deleting"] = False
+
+
+def preview_delete_last(runtime: Runtime) -> tuple[dict | None, str]:
+    try:
+        with _dataset_edit_session(runtime) as (root, repo_id):
+            target = dataset_edit.plan_delete(root).confirmation()
+            return {"repo_id": repo_id, **target}, "请确认删除目标"
+    except Exception as exc:
+        return None, str(exc)
+
+
+def delete_last_episode(runtime: Runtime, target: dict | None = None) -> tuple[bool, str]:
+    """必须携带预检所得目标；旧页面、重复请求、换数据集后都不能盲删末集。"""
+    try:
+        with _dataset_edit_session(runtime) as (root, repo_id):
+            if not isinstance(target, dict) or target.get("repo_id") != repo_id:
+                return False, "删除目标缺失或数据集已变化，请重新打开确认框"
+            result = dataset_edit.delete_last(root, {k: v for k, v in target.items() if k != "repo_id"})
+            with runtime.lifecycle_lock:
+                runtime.state.update(
+                    episode_count=result["episode_count"],
+                    last_episode=None,
+                    record_phase="idle",
+                    record_frames=0,
+                    record_elapsed=0.0,
+                    record_timing=None,
+                    control_timing=None,
+                    record_message=f"已删除第 {target['episode_index'] + 1} 集（{result['frames']} 帧）",
+                )
+            return True, runtime.state["record_message"]
+    except Exception as exc:
+        return False, str(exc)

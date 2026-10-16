@@ -733,7 +733,7 @@ def micro_move(runtime: Runtime, ch: str) -> None:
                 return
             angles = list(ja.msg)
             moved = angles[:]
-            moved[6] += 0.0873
+            moved[6] -= 0.0873
             runtime.channels[ch]["status"] = "微动中(末端关节转动)..."
             arm.move_j(moved)
             time.sleep(1.6)

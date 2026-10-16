@@ -127,7 +127,7 @@ class NeroVoice {
       cue = completed[action]?.test(message) ? {connect:'connected', micro:'micro_done', single_home:'single_home_done'}[action] : 'failed';
     }
     if (now.phase !== old.phase) {
-      const phases = {preparing:'preparing', aligning:'aligning', recording:'recording', stopping:'saving', saving:'saving', error:'failed'};
+      const phases = {preparing:'preparing', aligning:'aligning', recording:'recording', stopping:'saving', saving:'saving', cancelling:'cancel_recording', cancelled:'cancel_action', error:'failed'};
       cue = phases[now.phase] || cue;
       // 停止和写盘属于同一次保存，即使原句已播完也不再重复。
       if (old.phase === 'stopping' && now.phase === 'saving') cue = null;

@@ -15,7 +15,7 @@ from flask import Blueprint, Response, jsonify, request, send_file
 
 from lerobot.datasets.depth_utils import dequantize_depth
 
-from . import depth_images, pairing, rgbd_timing
+from . import dataset_transaction, depth_images, pairing, rgbd_timing
 from .camera_model import is_depth, stream_label
 from .runtime import Runtime
 
@@ -55,6 +55,8 @@ class LocalReview:
 
     def info(self, repo_id: str) -> tuple[Path, dict]:
         root = self.dataset_root(repo_id)
+        if dataset_transaction.pending(root):
+            raise ReviewError("该数据集删除尚未完成，请在工作台重新点击删除以恢复，再刷新回放", 409)
         path = inside(root, "meta/info.json")
         if not path.is_file():
             raise ReviewError("找不到本地数据集", 404)
@@ -467,7 +469,12 @@ def create_blueprint(runtime: Runtime) -> Blueprint:
 
     def active_repo() -> str | None:
         with runtime.lifecycle_lock:
-            if runtime.dataset is not None or runtime.state["connected"] or runtime.state["ending"]:
+            if (
+                runtime.dataset is not None
+                or runtime.state["connected"]
+                or runtime.state["ending"]
+                or runtime.state["deleting"]
+            ):
                 return runtime.state["repo_id"]
         return None
 

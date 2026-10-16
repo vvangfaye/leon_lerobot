@@ -273,7 +273,7 @@ def create_app(runtime: Runtime) -> Flask:
         if cam is None or not runtime.state["connected"]:
             return Response("camera not open", status=404, headers={"Cache-Control": "no-store"})
         try:
-            if runtime.state["record_phase"] in ("recording", "stopping"):
+            if runtime.state["record_phase"] in ("recording", "stopping", "cancelling"):
                 # 录制时只展示已提交的采样帧，绝不额外读取或重新打开相机。
                 cached = runtime.record_preview.get(name)
                 if cached is None or cached[0] is not cam or time.monotonic() - cached[2] > 1.0:
@@ -308,6 +308,8 @@ def create_app(runtime: Runtime) -> Flask:
             recording=capture["busy"],
             record=capture,
             episode_count=capture["episode_count"],
+            disk_episode_count=recorder.disk_episode_count(runtime),
+            dataset_edit_pending=recorder.dataset_edit_pending(runtime),
             leader_label=runtime.state["leader_label"],
             follower_label=runtime.state["follower_label"],
             pair_mode=runtime.state["pair_mode"],
@@ -322,6 +324,7 @@ def create_app(runtime: Runtime) -> Flask:
             home_pending=runtime.state["home_pending"],
             disabling=runtime.state["disabling"],
             ending=runtime.state["ending"],
+            deleting=runtime.state["deleting"],
             end_status=runtime.state["end_status"],
             disable_status=runtime.state["disable_status"],
             disable_error=runtime.state["disable_error"],
@@ -444,6 +447,21 @@ def create_app(runtime: Runtime) -> Flask:
     def api_record_stop() -> Response:
         ok, msg = recorder.request_stop(runtime)
         return jsonify(ok=ok, msg=msg)
+
+    @app.post("/api/record/cancel")
+    def api_record_cancel() -> tuple[Response, int]:
+        ok, msg = recorder.request_cancel(runtime)
+        return jsonify(ok=ok, msg=msg), 200 if ok else 409
+
+    @app.post("/api/record/delete-last/preview")
+    def api_record_delete_preview() -> tuple[Response, int]:
+        target, msg = recorder.preview_delete_last(runtime)
+        return jsonify(ok=target is not None, target=target, msg=msg), 200 if target else 409
+
+    @app.post("/api/record/delete-last")
+    def api_record_delete_last() -> tuple[Response, int]:
+        ok, msg = recorder.delete_last_episode(runtime, request.get_json(silent=True))
+        return jsonify(ok=ok, msg=msg), 200 if ok else 409
 
     @app.post("/api/teleop/test/start")
     def api_teleop_test_start() -> Any:

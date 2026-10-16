@@ -121,6 +121,8 @@ def default_state() -> dict[str, Any]:
         "last_episode": None,
         "writer_error": None,
         "stop_requested": False,
+        # 中途取消本集：录制中丢弃当前集、不保存（区别于 stop_requested 的保存）。
+        "cancel_requested": False,
         "shutting_down": False,
         "episode_count": 0,
         "last_error": None,
@@ -132,6 +134,8 @@ def default_state() -> dict[str, Any]:
         "teleop_needs_restore": False,
         "disabling": False,
         "ending": False,
+        # 正在删除上一集（磁盘操作，互斥）。
+        "deleting": False,
         "end_status": "",
         "disable_status": "",
         "disable_error": None,
@@ -186,7 +190,7 @@ class Runtime:
         """由调用者持有 lifecycle_lock；统一互斥判定，收尾可等待录制线程。"""
         return bool(
             self.state["shutting_down"]
-            or any(self.state[key] for key in ("homing", "disabling", "ending"))
+            or any(self.state[key] for key in ("homing", "disabling", "ending", "deleting"))
             or (include_recording and self.state["recording"])
             or self.state["teleop_test_active"]
             or (channel in self.device_busy if channel else self.device_busy)

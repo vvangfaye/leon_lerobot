@@ -82,6 +82,35 @@ LeRobot 读取视频和时间窗时也使用 `timestamp`、FPS 和 `delta_timest
 [官方部署的策略/记录 FPS 与插值控制频率说明](https://huggingface.co/docs/lerobot/main/inference)。
 官方 `interpolation_multiplier` 为整数，30 FPS 对应 3 倍是 90 Hz、4 倍是 120 Hz；精确 100 Hz 需按时间调度，不能把 3 倍当成 100 Hz。
 
+## 取消本集与删除上一条
+
+采集区“结束一集”下方新增两个按钮，语义不同：
+
+- **中途取消本集**：仅录制中可用。停止跟随并保持使能，等待暂存图像写入完成后丢弃本集，不生成 Parquet 或视频、不增加集数。开始保存后不再接受取消；清理失败则暂停续录，保留错误信息。
+- **删除上一条**：先结束采集、完成数据收尾。预检后弹窗显示具体数据集、集号和帧数，需要再次确认。成功删除不可撤销，使用前建议独立备份。
+
+删除只支持最后一集每路视频均独占的情况。任一路视频被其他集共用，就在改文件前拒绝整个操作；不裁剪或重编码共用 MP4。检查实际元数据，不依赖当前录制配置。
+保留各 Parquet 分片的位置，只移除末集行、独占视频及节拍报告。统计从保留集的元数据重新聚合，包括动作、状态、RGB、深度；全部删空则移除旧统计，下一次录制重新建立。
+确认绑定数据集和版本：其他页面先删过、切换数据集、删除后重试同一个请求都不会继续删除另一集。
+
+编辑期间会暂存受影响文件的原件；失败则回滚。进程中断后，点击“恢复上次删除”会先恢复/清理，再显示新的删除确认；开启下一次采集前也会先恢复。恢复失败时拒绝续录，保留 `.nero-delete-transaction` 目录供检查，请勿自行删掉。
+成功提交后该目录自动清理，事务暂存不代替独立备份。平台回放在删除或恢复期间暂停读取此数据集。
+这些磁盘操作只在采集会话结束后执行，不进入采样或主从控制循环。
+
+离线验证（使用临时数据，每次删除前复制备份，不连接硬件）：
+
+```bash
+PYTHONPATH=examples/nero_to_nero:src python -m unittest test_dataset_edit test_cancel_recording test_recording test_follow_mode -q
+node examples/nero_to_nero/test_record_ui.cjs
+node examples/nero_to_nero/test_voice_ui.cjs
+```
+
+新增语音文件若生成服务暂时不可用，文字提示和确认仍有效，可在服务恢复后补齐：
+
+```bash
+python examples/nero_to_nero/generate_platform_voice.py --cue cancel_recording --cue delete_last_warning --cue deleted
+```
+
 ## 第四步：左右双对采集
 
 原计划依次为：①模块拆分、②录制与保存流程、③采样质量、④左右双对同步采集、⑤数据列表与回放、⑥任务与审核、⑦训练和推理闭环。
