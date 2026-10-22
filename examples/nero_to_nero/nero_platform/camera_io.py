@@ -14,7 +14,7 @@ from lerobot.cameras.opencv import OpenCVCameraConfig
 
 from . import azure_kinect, camera_focus, femto, realsense, resolution, sampling
 from .camera_model import stream_label, stream_names
-from .cameras import RecordingCamera
+from .cameras import RecordingCamera, connect_rgb_camera
 
 
 class OpenCVBackend:
@@ -45,11 +45,7 @@ class OpenCVBackend:
 
     @staticmethod
     def connect(cam: Any, info: dict, focus_setting: dict | None = None) -> None:
-        cam.connect()
-        cam.metadata = {
-            **getattr(cam, "metadata", {}),
-            "focus": camera_focus.configure_focus(info["path"], focus_setting),
-        }
+        connect_rgb_camera(cam, info["path"], focus_setting)
 
     @staticmethod
     def inspect_focus(info: dict, stage: str, setting: dict | None = None) -> dict:

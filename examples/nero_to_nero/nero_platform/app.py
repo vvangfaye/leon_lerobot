@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import cv2
 from flask import Flask, Response, jsonify, request
 
 from . import (
@@ -102,6 +101,42 @@ def create_app(runtime: Runtime) -> Flask:
     @app.post("/api/arm/disable/<ch>")
     def api_arm_disable(ch: str) -> Any:
         return device_command(ch, devices.home_and_disable)
+
+    @app.post("/api/arm/measure/<ch>")
+    def api_arm_measure(ch: str) -> Any:
+        if ch not in runtime.channels:
+            return jsonify(ok=False, msg="未知 CAN 通道"), 404
+        with runtime.lifecycle_lock:
+            if runtime.operation_busy(channel=ch):
+                return jsonify(ok=False, msg="机械臂正在执行操作，请等待完成"), 409
+            if runtime.state["recovery_required"]:
+                return jsonify(ok=False, msg=runtime.state["recovery_required"]), 409
+            if runtime.state["connected"]:
+                return jsonify(ok=False, msg="请先结束采集，再进行设备配置"), 409
+            if runtime.state["measuring"]:
+                return jsonify(ok=False, msg="正在测量中，请先停止"), 409
+            runtime.device_busy.add(ch)
+            runtime.state["disable_status"] = ""
+
+            def run_measure() -> None:
+                try:
+                    devices.start_measure_limits(runtime, ch)
+                except Exception as exc:
+                    with runtime.lifecycle_lock:
+                        runtime.device_busy.discard(ch)
+                    runtime.state["measure_status"] = f"测量启动失败：{exc}"
+
+            threading.Thread(target=run_measure, daemon=True).start()
+        return jsonify(ok=True)
+
+    @app.post("/api/arm/measure/stop/<ch>")
+    def api_arm_measure_stop(ch: str) -> Any:
+        if ch not in runtime.channels:
+            return jsonify(ok=False, msg="未知 CAN 通道"), 404
+        ok, msg = devices.stop_measure_limits(runtime, ch)
+        with runtime.lifecycle_lock:
+            runtime.device_busy.discard(ch)
+        return jsonify(ok=ok, msg=msg), 200 if ok else 409
 
     @app.post("/api/pair/home")
     def api_pair_home() -> Any:
@@ -238,10 +273,9 @@ def create_app(runtime: Runtime) -> Flask:
 
     def jpeg_response(frame: Any) -> Response:
         # JPEG 编码只在浏览器请求线程执行，保持数据集图像为 RGB。
-        ok, jpeg = cv2.imencode(".jpg", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-        if not ok:
-            return Response("preview encoding failed", status=503, headers={"Cache-Control": "no-store"})
-        return Response(jpeg.tobytes(), mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+        return Response(
+            camera_preview.encode_jpeg(frame), mimetype="image/jpeg", headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/camera/<cam_id>/frame")
     def camera_frame(cam_id: str) -> Response:
@@ -341,6 +375,9 @@ def create_app(runtime: Runtime) -> Flask:
             teleop_test_message=runtime.state["teleop_test_message"],
             teleop_gripper_force=runtime.state["teleop_gripper_force"],
             gripper_force=runtime.state["gripper_force"],
+            measuring=runtime.state["measuring"],
+            measure_status=runtime.state["measure_status"],
+            measure_channel=runtime.state["measure_channel"],
             camera_previews=dict(runtime.preview_states),
             camera_focus=dict(runtime.camera_focus),
             camera_focus_settings=dict(runtime.state["camera_focus_settings"]),

@@ -1,12 +1,14 @@
 """平台测试永远不枚举或连接真实 Femto；用例可显式注入模拟 SDK。"""
 
 import errno
+import os
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from nero_platform import azure_kinect, camera_focus, femto, realsense
+from nero_platform import azure_kinect, camera_color, camera_focus, femto, realsense
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +21,10 @@ def simulated_focus_controls(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(camera_focus, "_device", device)
     monkeypatch.setattr(camera_focus, "ioctl", Mock(side_effect=OSError(errno.EINVAL, "unsupported control")))
+    monkeypatch.setattr(camera_color, "os", SimpleNamespace(
+        open=Mock(return_value=-1), close=Mock(), O_RDWR=os.O_RDWR, O_NONBLOCK=os.O_NONBLOCK,
+    ))
+    monkeypatch.setattr(camera_color, "ioctl", Mock(side_effect=OSError(errno.EINVAL, "unsupported control")))
 
 
 @pytest.fixture(autouse=True)

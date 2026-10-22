@@ -9,7 +9,7 @@ from typing import Any
 
 from pyAgxArm import AgxArmFactory, ArmModel, NeroFW, create_agx_arm_config
 
-from . import hardware_status, pairing
+from . import hardware_status, joint_limits, pairing
 from .runtime import Runtime, available_channels, default_channel_state
 
 # 默认位置（关节角，单位：度）；move_j 使用弧度，故转为弧度。
@@ -870,3 +870,83 @@ def _transition_one_pair(runtime: Runtime, pair: pairing.Pair) -> None:
     hardware_status.require_ready_for_motion(runtime, follower_ch)
     runtime.channels[follower_ch]["status"] = "从臂已使能（跟随模式）"
     print(f"[采集] {pair.display}（{leader_ch} → {follower_ch}）已切到采集模式")
+
+
+def start_measure_limits(runtime: Runtime, ch: str) -> None:
+    """使能并切到拖动模式，后台开始关节限位测量（只读，不发送控制）。"""
+    info = runtime.channels[ch]
+    arm = info["arm"]
+    if arm is None or not info["detected"]:
+        raise RuntimeError("机械臂尚未连接，请先连接")
+    _exit_teaching_before_enable(runtime, ch)
+    info["status"] = "正在使能并准备拖动测量…"
+    deadline = time.monotonic() + ENABLE_TIMEOUT_SECONDS
+    while not arm.enable():
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"使能超时；{_enable_failure_details(arm)}")
+        time.sleep(0.02)
+    # 释放夹爪残留控制，避免 leader 模式夹爪抖动；只测关节，不测夹爪。
+    gripper = info.get("gripper")
+    if gripper is not None:
+        try:
+            _disable_and_confirm(gripper.disable_gripper, lambda: [gripper.get_gripper_status()])
+        except Exception:
+            pass
+    time.sleep(0.3)
+    set_control_role(runtime, ch, "leader")
+    time.sleep(0.3)
+    runtime.measure_stop = threading.Event()
+    runtime.measure_report = {}
+    setattr(arm, "_channel", ch)
+    runtime.state.update(
+        measuring=True, measure_channel=ch,
+        measure_status="请手动拖动各关节到两端（不要硬顶机械限位），完成后点停止测量",
+    )
+    info["status"] = "拖动测量中…"
+    runtime.measure_thread = threading.Thread(
+        target=_measure_worker, args=(runtime, ch), name="nero-measure-limits", daemon=True
+    )
+    runtime.measure_thread.start()
+
+
+def _measure_worker(runtime: Runtime, ch: str) -> None:
+    arm = runtime.channels[ch]["arm"]
+    try:
+        runtime.measure_report = joint_limits.measure(
+            arm, runtime.measure_stop,
+            progress=lambda message: runtime.state.__setitem__("measure_status", message),
+        )
+    except Exception as exc:
+        runtime.measure_report = {"error": str(exc)}
+    finally:
+        runtime.state["measuring"] = False
+
+
+def stop_measure_limits(runtime: Runtime, ch: str) -> tuple[bool, str]:
+    """停止测量、恢复从臂模式（保持使能），并按角色标签保存实测范围。"""
+    arm = runtime.channels[ch]["arm"]
+    if arm is None:
+        return False, "机械臂未连接"
+    if runtime.measure_thread is not None and runtime.measure_thread.is_alive():
+        runtime.measure_stop.set()
+        runtime.measure_thread.join(timeout=2.5)
+    # 恢复受控模式，保持使能（不自动失能，避免高位坠落）。
+    try:
+        set_control_role(runtime, ch, "follower")
+        time.sleep(0.3)
+        runtime.channels[ch]["status"] = "已恢复从臂模式（保持使能）"
+    except Exception as exc:
+        runtime.channels[ch]["status"] = f"恢复从臂模式失败：{exc}"
+    report = runtime.measure_report or {}
+    if report.get("error"):
+        return False, f"测量失败：{report['error']}"
+    if not report.get("valid_samples"):
+        return False, "没有采集到有效关节反馈，请确认臂已使能且处于拖动模式后重试"
+    label = runtime.channels[ch]["label"]
+    if label in ("", "未分配"):
+        return False, "请先为该臂分配角色（主左/主右/从左/从右），再保存测量结果"
+    try:
+        path = joint_limits.save_limits(label, report)
+    except OSError as exc:
+        return False, f"保存失败：{exc}"
+    return True, f"已保存 {label} 实测限位到 {path}"

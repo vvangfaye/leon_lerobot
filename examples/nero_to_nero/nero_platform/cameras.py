@@ -9,7 +9,7 @@ import numpy as np
 from lerobot.cameras.configs import ColorMode
 from lerobot.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
 
-from . import camera_preview, depth_discovery, resolution
+from . import camera_color, camera_preview, depth_discovery, resolution
 from .camera_focus import configure_focus
 from .camera_model import ROLES
 from .runtime import Runtime
@@ -23,6 +23,28 @@ class RecordingCamera(OpenCVCamera):
     def _postprocess_image(self, image: np.ndarray) -> np.ndarray:
         image = super()._postprocess_image(image)
         return resolution.resize(image, self.output_size) if self.output_size else image
+
+
+def create_preview_camera(path: str | Path) -> OpenCVCamera:
+    """两个平台共用设备预览参数，让 OpenCV 协商传输格式。"""
+    return OpenCVCamera(
+        OpenCVCameraConfig(
+            index_or_path=Path(path), width=640, height=480, fps=30, color_mode=ColorMode.RGB,
+        )
+    )
+
+
+def connect_rgb_camera(cam: OpenCVCamera, path: str | Path, focus_setting: dict | None = None) -> None:
+    """设备预览、录制和推理使用同一套相机初始化。"""
+    cam.connect()
+    cam.metadata = {
+        **getattr(cam, "metadata", {}),
+        "focus": configure_focus(path, focus_setting),
+        "white_balance": camera_color.configure_white_balance(path),
+    }
+    for result in (cam.metadata["focus"], cam.metadata["white_balance"]):
+        if result["state"] == "warning":
+            logging.getLogger(__name__).warning("%s：%s", path, result["message"])
 
 
 def validate_selection(camera_map: dict[str, str], record_camera: str) -> None:
@@ -140,16 +162,9 @@ def open_preview_cams(runtime: Runtime) -> None:
             continue
         cam = None
         try:
-            cam = OpenCVCamera(
-                OpenCVCameraConfig(
-                    index_or_path=Path(path), width=640, height=480, fps=30, color_mode=ColorMode.RGB
-                )
-            )
-            cam.connect()
-            result = configure_focus(path, runtime.state["camera_focus_settings"].get(cam_id))
-            runtime.camera_focus[cam_id] = result
-            if result["state"] == "warning":
-                logging.getLogger(__name__).warning("%s：%s", cam_id, result["message"])
+            cam = create_preview_camera(path)
+            connect_rgb_camera(cam, path, runtime.state["camera_focus_settings"].get(cam_id))
+            runtime.camera_focus[cam_id] = cam.metadata["focus"]
             runtime.preview_cams[cam_id] = cam
         except Exception as e:
             if cam is not None:

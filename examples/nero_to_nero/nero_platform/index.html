@@ -224,6 +224,16 @@
     <button id="safety-confirm" class="stop" onclick="finishSafety(true)" disabled>请先听完提醒</button>
   </div>
 </dialog>
+<dialog id="measure-dialog" aria-labelledby="measure-title">
+  <h2 id="measure-title">关节限位测量</h2>
+  <div id="measure-text" style="white-space:pre-line;line-height:1.8;margin:16px 0">点击「开始拖动测量」后，手动把各关节拖到两端（不要硬顶机械限位），完成后点「停止测量并保存」。</div>
+  <div id="measure-status" class="record-detail" aria-live="polite"></div>
+  <div class="row">
+    <button onclick="document.getElementById('measure-dialog').close(); measuringChannel=null;">关闭</button>
+    <button id="measure-start" class="go" onclick="startMeasure()">开始拖动测量</button>
+    <button id="measure-stop" class="stop" onclick="stopMeasure()" hidden>停止测量并保存</button>
+  </div>
+</dialog>
 <script src="/static/voice.js?v=5"></script>
 <script src="/static/camera_focus.js?v=1"></script>
 <script>
@@ -550,6 +560,7 @@ function buildArms(){
       </div><div class="arm-actions"><button class="device-command" onclick="armConnect('${ch}')">连接并读取</button>
       <button onclick="checkArm('${ch}')">检查状态</button>
       <button class="device-command" id="move-${ch}" onclick="armMove('${ch}')">微动测试</button>
+      <button class="device-command" id="measure-${ch}" onclick="armMeasure('${ch}')">关节限位测量</button>
       <button class="device-command quiet-danger" id="home-${ch}" onclick="armDisable('${ch}')">回位后失能</button></div>
       <div class="hardware">
         <div id="comm-${ch}"></div><div id="mode-${ch}"></div>
@@ -615,6 +626,52 @@ async function checkArm(ch){
   await refresh();
 }
 async function armMove(ch){ await runCommand("/api/arm/move/"+ch, ch, "micro", "micro"); }
+
+let measuringChannel = null;
+function armMeasure(ch){
+  if(safetyPending) return;
+  measuringChannel = ch;
+  const name = document.getElementById("lb-"+ch).value;
+  document.getElementById("measure-title").textContent = `${name} (${ch}) 关节限位测量`;
+  document.getElementById("measure-text").textContent = "点击「开始拖动测量」后，手动把各关节拖到两端（不要硬顶机械限位），完成后点「停止测量并保存」。测量只读、不发送控制；停止后恢复从臂模式并保持使能，结果按当前角色标签保存。";
+  document.getElementById("measure-status").textContent = "";
+  document.getElementById("measure-start").hidden = false;
+  document.getElementById("measure-stop").hidden = true;
+  document.getElementById("measure-dialog").showModal();
+}
+async function startMeasure(){
+  const ch = measuringChannel;
+  try{
+    await post("/api/arm/measure/"+ch);
+    document.getElementById("measure-start").hidden = true;
+    document.getElementById("measure-stop").hidden = false;
+    document.getElementById("measure-status").textContent = "拖动中…请移动各关节到两端。";
+    pollMeasure();
+  }catch(error){ operationError(error); document.getElementById("measure-dialog").close(); measuringChannel = null; }
+}
+async function pollMeasure(){
+  if(!measuringChannel) return;
+  const dialog = document.getElementById("measure-dialog");
+  if(!dialog.open){ measuringChannel = null; return; }
+  try{
+    const s = await getJson("/api/status");
+    if(s.measure_status) document.getElementById("measure-status").textContent = s.measure_status;
+  }catch(_){}
+  if(measuringChannel) setTimeout(pollMeasure, 1000);
+}
+async function stopMeasure(){
+  const ch = measuringChannel;
+  try{
+    const result = await post("/api/arm/measure/stop/"+ch);
+    document.getElementById("measure-status").textContent = result.msg || "已保存";
+    document.getElementById("measure-stop").hidden = true;
+    document.getElementById("measure-start").hidden = false;
+    measuringChannel = null;
+  }catch(error){
+    document.getElementById("measure-status").textContent = "停止失败："+error.message;
+  }
+  await refresh();
+}
 async function armDisable(ch){
   if(safetyPending || document.getElementById("home-"+ch).disabled) return;
   const name = document.getElementById("lb-"+ch).value;

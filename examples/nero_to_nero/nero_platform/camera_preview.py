@@ -1,12 +1,21 @@
-"""设备分配阶段的 RGBD 预览；一个设备只持有一条管线，与录制互斥。"""
+"""共用预览编码和 RGBD 预览；一个设备只持有一条管线，与录制互斥。"""
 
 from collections.abc import Callable
 from typing import Any
 
+import cv2
 import numpy as np
 
 from . import azure_kinect, depth_images, femto, realsense, resolution
 from .runtime import Runtime
+
+
+def encode_jpeg(frame: np.ndarray) -> bytes:
+    """RGB 缓存帧只在预览编码时转为 BGR，不修改采集/模型输入。"""
+    ok, encoded = cv2.imencode(".jpg", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+    if not ok:
+        raise ValueError("预览编码失败")
+    return encoded.tobytes()
 
 
 def _orbbec(info: dict) -> femto.FemtoCamera:

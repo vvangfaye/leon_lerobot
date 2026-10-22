@@ -152,6 +152,10 @@ def default_state() -> dict[str, Any]:
         # 返回默认位置逐个臂进行：回完一条臂后暂停，等待用户按 q 确认再回下一条。
         "home_awaiting": False,
         "home_pending": [],
+        # 关节限位测量。
+        "measuring": False,
+        "measure_status": "",
+        "measure_channel": None,
     }
 
 
@@ -181,6 +185,9 @@ class Runtime:
     record_thread: threading.Thread | None = None
     home_thread: threading.Thread | None = None
     teleop_test_thread: threading.Thread | None = None
+    measure_thread: threading.Thread | None = None
+    measure_stop: threading.Event = field(default_factory=threading.Event)
+    measure_report: dict = field(default_factory=dict)
     home_continue_event: threading.Event = field(default_factory=threading.Event)
     device_busy: set[str] = field(default_factory=set)
     lifecycle_lock: Any = field(default_factory=threading.RLock)

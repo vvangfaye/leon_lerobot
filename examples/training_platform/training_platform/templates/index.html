@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>模型训练 · LeRobot 工作台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-inference-url="{{ inference_url|default('http://127.0.0.1:7862/', true) }}">
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="LeRobot 训练首页"><span class="brand-mark">L</span><span><strong>LeRobot 工作台</strong><small>LOCAL ROBOTICS WORKSPACE</small></span></a>
+    <nav aria-label="工作台导航"><a href="{{ collection_url|default('http://127.0.0.1:7861/', true) }}">数据采集</a><a href="/" aria-current="page">模型训练</a><a href="{{ inference_url|default('http://127.0.0.1:7862/', true) }}">模型推理</a></nav>
+    <div class="top-right"><span id="connection" class="connection"><i></i>正在连接</span><button id="new-job" class="button compact">＋ 新建训练</button></div>
+  </header>
+  <div class="workflow"><div><span><b>1</b> 数据集</span><i></i><span><b>2</b> 模型与配置</span><i></i><span><b>3</b> 训练监控</span><i></i><span><b>4</b> 模型产物</span></div><span>基于原生 LeRobot 训练流程 · 本地运行</span></div>
+  <div id="global-error" class="notice error" role="alert" hidden></div>
+  <main class="workspace">
+    <aside class="left-column">
+      <section class="panel">
+        <div class="panel-heading"><h2>数据集</h2><span class="tag">LeRobot Dataset</span></div>
+        <label for="dataset-select">本地数据集</label><select id="dataset-select"><option value="">选择已发现的数据集</option></select>
+        <button id="pick-dataset" class="button full compact">选择本地文件夹…</button>
+        <label for="dataset-repo">数据集 Repo ID</label><input id="dataset-repo" placeholder="例如 nero/pick_cup" autocomplete="off">
+        <p class="hint">支持本地数据和 Hugging Face 数据集；网络下载由 LeRobot 处理。</p>
+        <dl id="dataset-details" class="details"><div><dt>数据状态</dt><dd>尚未选择</dd></div></dl>
+        <p id="dataset-path" class="path"></p>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><h2>模型与配置</h2><button id="edit-config" class="text-button">编辑配置 ↗</button></div>
+        <label for="model-select">训练模型</label><select id="model-select"><option value="">正在读取模型注册表…</option></select>
+        <p id="model-description" class="hint">从当前 LeRobot 安装读取模型与默认配置。</p>
+        <label for="training-mode">训练方式</label><select id="training-mode"><option value="new">新建训练 / 微调</option><option value="resume">完整断点续训</option></select>
+        <div id="pretrained-group"><label for="pretrained-path">模型起点 <span class="muted">可选</span></label><div class="input-action"><input id="pretrained-path" placeholder="预训练模型路径或 Hub ID"><button id="pick-model" title="选择本地模型" aria-label="选择本地模型">…</button></div><p class="hint">留空使用该模型的原生默认初始化；是否需要基座由模型决定。</p></div>
+        <div id="resume-group" hidden><label for="checkpoint-select">续训 checkpoint</label><select id="checkpoint-select"><option value="">选择 outputs 内的 checkpoint</option></select><button id="pick-checkpoint" class="button full compact">手动选择 checkpoint…</button><p id="resume-info" class="hint">完整续训恢复模型、优化器、学习率及进度。</p></div>
+        <dl id="config-summary" class="details"></dl>
+        <button id="validate-config" class="button full compact">校验训练配置</button>
+        <p id="validation-status" class="hint">启动前会校验配置与所需依赖。</p>
+      </section>
+    </aside>
+    <div class="center-column">
+      <section class="panel training-panel">
+        <div class="panel-heading"><div><span class="eyebrow">TRAINING SESSION</span><h1 id="job-title">准备新的训练</h1></div><span id="job-status" class="status-pill">草稿</span></div>
+        <p id="job-description" class="hint">选择数据与模型，编辑配置后启动训练。</p>
+        <div class="progress-label"><strong id="step-value">— <span>/ — steps</span></strong><span id="progress-value">尚未开始</span></div>
+        <div class="progress-track"><div id="progress-bar"></div></div>
+        <div class="progress-meta"><span id="epoch-value">折合 epoch —</span><span id="resume-value"></span><span id="eta-value">预计剩余 —</span></div>
+        <div class="metrics"><div><span>训练 loss</span><strong id="metric-loss">—</strong><small>最新记录值</small></div><div><span>训练速度</span><strong id="metric-speed">—</strong><small>steps / s</small></div><div><span>学习率</span><strong id="metric-lr">—</strong><small>当前优化器</small></div><div><span>显存峰值</span><strong id="metric-memory">—</strong><small id="memory-unit">GB · 日志未提供时留空</small></div></div>
+        <div class="chart-heading"><h2>损失曲线</h2><label class="inline-label" for="chart-metric">指标<select id="chart-metric"><option value="loss">loss</option></select></label></div>
+        <div class="chart-wrap"><canvas id="loss-chart" aria-label="训练指标曲线"></canvas><div id="chart-empty" class="chart-empty"><span class="chart-symbol">⌁</span><strong>等待训练指标</strong><p>只显示实际日志，缺失的历史不会补画。</p></div></div>
+        <p class="hint chart-note">训练 loss 反映拟合过程，不能单独判断泛化能力或真机表现。epoch 为样本数折算值。</p>
+      </section>
+      <section class="panel logs-panel"><div class="panel-heading"><h2>运行日志</h2><div class="log-actions"><label class="check-label"><input id="follow-logs" type="checkbox" checked>自动滚动</label><button id="view-command" class="text-button">查看启动命令</button></div></div><pre id="log-output" aria-label="训练日志">尚无训练日志。</pre><div class="log-footer"><span id="log-file">日志保存在本地</span><span>每 2 秒更新</span></div></section>
+    </div>
+    <aside class="right-column">
+      <section class="panel"><div class="panel-heading"><h2>模型产物</h2><span id="checkpoint-count" class="tag">0 个 checkpoint</span></div><p class="hint">仅列出已经保存的 checkpoint。</p><div id="checkpoint-list" class="item-list"><p class="empty">训练产物会出现在这里</p></div><p id="output-path" class="path"></p></section>
+      <section class="panel history-panel"><div class="panel-heading"><h2>训练历史</h2><button id="refresh-jobs" class="text-button" aria-label="刷新训练历史">刷新</button></div><div id="job-list" class="item-list"><p class="empty">正在查找已有训练…</p></div><p class="hint">平台启动的任务可控；终端已有任务以只读方式接入。</p></section>
+      <section class="panel quiet-panel"><span class="eyebrow">原生训练 · 独立任务</span><h2>配置和产物可追溯</h2><p>每次运行保留实际配置。编辑运行中任务时，修改仅保存为下一次训练草稿。</p><p>机械臂连接与实机测试请使用已有推理平台。</p></section>
+    </aside>
+  </main>
+  <footer class="control-bar"><div class="control-status"><i id="status-light"></i><div><strong id="footer-title">准备就绪</strong><span id="footer-message">配置后可生成原生 LeRobot 启动命令</span></div></div><div class="control-buttons"><button id="save-draft" class="button">保存草稿</button><button id="start-training" class="button primary">▶ 开始训练</button><button id="stop-training" class="button stop" disabled>■ 保存并停止</button></div></footer>
+  <dialog id="config-dialog" class="config-dialog">
+    <div class="dialog-header"><div><span class="eyebrow">TRAINING CONFIGURATION</span><h2>编辑训练配置</h2></div><button class="icon-button" data-close="config-dialog" aria-label="关闭配置编辑器">×</button></div>
+    <p id="edit-notice" class="notice">修改保存至训练草稿。</p>
+    <div class="tabs" role="tablist"><button data-tab="common" role="tab" aria-selected="true">常用参数</button><button data-tab="model" role="tab" aria-selected="false">模型参数</button><button data-tab="json" role="tab" aria-selected="false">完整 JSON</button><button data-tab="actual" role="tab" aria-selected="false" hidden>本次运行配置</button></div>
+    <div class="dialog-body"><div id="tab-common" class="tab-content"><div id="common-fields" class="form-grid"></div><p class="hint">目标步数为累计总步数。续训时填写最终目标，而非追加步数。</p></div><div id="tab-model" class="tab-content" hidden><p class="hint">参数来自当前模型的配置。复杂对象使用 JSON；含义与原生 LeRobot 保持一致。</p><div id="model-fields" class="form-grid"></div></div><div id="tab-json" class="tab-content" hidden><label for="config-json">完整训练配置</label><textarea id="config-json" class="code-editor" spellcheck="false"></textarea></div><div id="tab-actual" class="tab-content" hidden><p class="hint">此配置用于当前运行，供核对，不可修改。</p><pre id="actual-config" class="code-editor"></pre></div><p id="config-error" class="notice error" role="alert" hidden></p><p id="config-result" class="hint"></p></div>
+    <div class="dialog-footer"><div class="secondary-actions"><button id="reset-config" class="text-button">模型默认值</button><button id="import-config" class="text-button">导入 JSON</button><button id="export-config" class="text-button">导出 JSON</button><input id="import-file" type="file" accept=".json,application/json" hidden></div><button id="check-editor" class="button">校验</button><button id="save-config" class="button primary">保存配置</button></div>
+  </dialog>
+  <dialog id="command-dialog"><div class="dialog-header"><h2>原生 LeRobot 启动命令</h2><button class="icon-button" data-close="command-dialog" aria-label="关闭命令">×</button></div><p class="hint">平台使用相同配置调用 LeRobot。手动启动前，请确认没有其他训练占用同一设备和输出目录。</p><pre id="command-text" class="code-editor"></pre><div class="dialog-footer"><span id="copy-result" class="hint"></span><button id="copy-command" class="button primary">复制命令</button></div></dialog>
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>

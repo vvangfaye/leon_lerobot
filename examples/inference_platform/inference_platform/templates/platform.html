@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="platform-ui-version" content="5">
+  <meta name="checkpoint-ui-version" content="2">
+  <title>NERO / Piper · 推理平台</title>
+  <link rel="stylesheet" href="/static/platform.css">
+  <link rel="stylesheet" href="/static/devices.css">
+  <script src="/static/platform.js" defer></script>
+  <script src="/static/devices.js" defer></script>
+  <script src="/static/inference.js" defer></script>
+</head>
+<body>
+  <svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 6h4l2-2h4l2 2h4v14H4z"/><circle cx="12" cy="13" r="4"/></symbol>
+    <symbol id="i-arm" viewBox="0 0 24 24"><path d="M4 21h16M7 21v-5l4-5-4-5 4-3 6 7-3 6v5M17 10l3-2 2 3-3 2"/><circle cx="11" cy="11" r="2"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v11h5v-7h4v7h5V10"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 14 8-14 8z"/></symbol>
+    <symbol id="i-step" viewBox="0 0 24 24"><path d="M5 4v16m5-16 11 8-11 8z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M4 3h13l4 4v14H3V3h1m3 0v7h10V3M7 21v-7h10v7"/></symbol>
+  </svg>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">N</span><div><h1>推理平台</h1><span>NERO / Piper</span></div></div>
+    <nav aria-label="主导航"><a class="nav-link" href="http://127.0.0.1:7863">模型训练</a><span class="nav-active">实时推理</span></nav>
+    <div class="top-actions"><span class="stage-badge">π0.5 · 推理与保存</span><button id="save-config" class="button compact"><svg><use href="#i-save"/></svg>保存配置</button></div>
+  </header>
+  <div class="setup-bar">
+    <div class="setup-stages"><span><b>01</b>配置设备与模型</span><i></i><span><b>02</b>连接与预览</span><i></i><span class="current"><b>03</b>模型执行</span><i></i><span><b>04</b>持续与保存</span></div>
+    <span class="scope-summary" id="scope-summary">NERO · 双臂 · EEF</span>
+  </div>
+  <form id="config-form" class="workspace">
+    <aside class="left-column">
+      <section class="panel device-panel">
+        <div class="panel-heading"><h2>设备连接</h2><span id="device-status" class="status muted-status">未连接</span></div>
+        <div class="two-fields">
+          <div><label for="robot">机械臂类型</label><select id="robot"><option value="nero">NERO</option><option value="piper">Piper</option></select></div>
+          <div><label for="arms">使用方式</label><select id="arms"><option value="dual">双臂</option><option value="single">单臂</option></select></div>
+        </div>
+        <p id="device-config-message" class="field-note" role="status">连接后仍可修改；切换型号会释放机械臂连接，相机继续预览。</p>
+        <div class="section-label"><span>机械臂</span><button id="manage-arms" class="text-button" type="button">连接机械臂</button></div>
+        <div class="device-row"><span><svg><use href="#i-arm"/></svg>左主臂</span><span id="arm-left-leader-status" class="muted">未分配</span></div>
+        <div class="device-row"><span><svg><use href="#i-arm"/></svg>右主臂</span><span id="arm-right-leader-status" class="muted">未分配</span></div>
+        <div class="device-row"><span><svg><use href="#i-arm"/></svg>左从臂</span><span id="arm-left-follower-status" class="muted">未分配</span></div>
+        <div class="device-row"><span><svg><use href="#i-arm"/></svg>右从臂</span><span id="arm-right-follower-status" class="muted">未分配</span></div>
+        <div class="section-label camera-heading"><span>相机</span><button id="manage-cameras" class="text-button" type="button">连接相机</button></div>
+        <div class="device-row"><span><svg><use href="#i-camera"/></svg>头部相机</span><span id="camera-head-status" class="muted">未分配</span></div>
+        <div class="device-row"><span><svg><use href="#i-camera"/></svg>左腕相机</span><span id="camera-left-status" class="muted">未分配</span></div>
+        <div class="device-row"><span><svg><use href="#i-camera"/></svg>右腕相机</span><span id="camera-right-status" class="muted">未分配</span></div>
+        <p class="field-note" id="connection-note">按实物分配设备用途；单臂 / 双臂和动作空间可随时调整。</p>
+        <p class="field-note" id="current-device-selection">只确认本次使用的设备，其余保持未分配。</p>
+        <button type="button" id="confirm-current-devices" class="button full" disabled>确认本次设备用途</button>
+        <p id="device-confirm-error" class="config-issue" role="alert" hidden></p>
+      </section>
+      <section class="panel model-panel">
+        <div class="panel-heading"><h2>模型配置</h2><span id="model-tag" class="small-tag">未加载</span></div>
+        <label id="space-label">动作空间</label>
+        <div class="segmented" role="group" aria-labelledby="space-label">
+          <button type="button" data-space="joint" aria-pressed="false">关节空间</button>
+          <button type="button" data-space="eef" aria-pressed="true">EEF 空间</button>
+        </div>
+        <p id="space-description" class="field-note">模型输出末端位置、姿态和夹爪动作。</p>
+        <label for="model">基座模型</label>
+        <select id="model"><option value="pi05">π0.5 · LeRobot</option><option value="openwam" disabled>OpenWAM · 暂不接入</option></select>
+        <label for="checkpoint-source">Checkpoint 来源</label>
+        <select id="checkpoint-source">
+          <option value="outputs">扫描 outputs 文件夹</option>
+          <option value="manual">手动选择文件夹…</option>
+        </select>
+        <p id="checkpoint-scan-hint" class="field-note">自动扫描只查找本项目 outputs 文件夹。</p>
+        <div id="outputs-checkpoint-field">
+          <div class="field-heading"><label for="checkpoint">扫描结果</label><button type="button" id="refresh-checkpoints" class="text-button">重新扫描</button></div>
+          <select id="checkpoint" disabled><option value="">正在扫描 outputs…</option></select>
+        </div>
+        <div id="manual-checkpoint-field" hidden>
+          <button type="button" id="choose-checkpoint" class="button full">选择 checkpoint 文件夹…</button>
+          <p id="manual-checkpoint-path" class="checkpoint-detail">尚未选择文件夹</p>
+        </div>
+        <p id="checkpoint-selection-message" class="field-note" role="status" hidden></p>
+        <p id="checkpoint-detail" class="checkpoint-detail">只读取配置文件，不加载模型权重。</p>
+        <p id="config-issue" class="config-issue" role="status" hidden></p>
+        <button type="button" id="load-model" class="button full">加载 π0.5</button>
+        <button type="button" id="unload-model" class="text-button" disabled>卸载模型</button>
+        <p id="model-message" class="field-note" role="status">加载会校验机械臂、动作表示、相机与归一化配置。</p>
+      </section>
+    </aside>
+    <section class="panel vision-panel">
+      <div class="panel-heading"><h2>实时画面</h2><span id="preview-status" class="small-tag">等待相机连接</span></div>
+      <div class="camera-grid">
+        <figure class="camera-view main-camera" data-camera-role="head">
+          <figcaption><span>头部相机 <small>HEAD</small></span><span class="frame-status">未连接</span></figcaption>
+          <img class="live-frame" alt="头部相机实时画面" hidden>
+          <div class="camera-empty"><div class="camera-icon"><svg><use href="#i-camera"/></svg></div><strong>等待连接相机</strong><p>连接后在这里持续预览</p></div>
+          <span class="view-label">主视角</span>
+        </figure>
+        <figure class="camera-view" data-camera-role="left">
+          <figcaption><span>左腕相机 <small>LEFT</small></span><span class="frame-status">未连接</span></figcaption>
+          <img class="live-frame" alt="左腕相机实时画面" hidden>
+          <div class="camera-empty small"><svg><use href="#i-camera"/></svg><span>未连接</span></div>
+        </figure>
+        <figure class="camera-view" data-camera-role="right">
+          <figcaption><span>右腕相机 <small>RIGHT</small></span><span class="frame-status">未连接</span></figcaption>
+          <img class="live-frame" alt="右腕相机实时画面" hidden>
+          <div class="camera-empty small"><svg><use href="#i-camera"/></svg><span>未连接</span></div>
+        </figure>
+      </div>
+      <div class="observation-summary"><div><span class="eyebrow">当前配置</span><strong id="observation-title">NERO · 双臂</strong></div><div><span class="eyebrow">动作表示</span><strong id="observation-space">EEF · 末端空间</strong></div><span id="connection-summary" class="not-ready">设备待连接</span></div>
+      <div class="stage-note"><span class="note-number">02</span><div><strong>连接设备，核对用途与画面</strong><p id="device-message" role="status">支持单臂或双臂，以及最多三路已分配相机预览。</p></div></div>
+    </section>
+    <aside class="right-column">
+      <section class="panel">
+        <div class="panel-heading"><h2>任务设置</h2></div>
+        <label for="task">任务指令</label>
+        <textarea id="task" rows="4" placeholder="例如：pick up the black thing into the box"></textarea>
+        <label for="duration">单集测试时长（秒）</label>
+        <input id="duration" type="number" min="1" max="600" step="1" inputmode="numeric" value="60">
+        <div class="task-summary"><span>单集测试</span><strong>按时长闭环运行，到点自动停止</strong></div>
+        <div class="task-summary"><span>持续执行</span><strong>闭环运行，直到手动停止</strong></div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><h2>数据保存</h2><span class="small-tag">LeRobot 格式</span></div>
+        <label class="switch-row" for="record"><span>保存本次运行</span><input id="record" type="checkbox" role="switch"><span class="switch-track" aria-hidden="true"></span></label>
+        <p class="field-note" id="record-description">关闭时不保存视频、观测和动作数据。</p>
+        <div id="record-fields" hidden><label for="dataset-name">数据集名称</label><input id="dataset-name" placeholder="nero/inference_pick01" spellcheck="false"><label for="output-dir">保存目录</label><input id="output-dir" placeholder="默认：outputs/inference" spellcheck="false"><p class="field-note">每次执行生成独立目录，保存 RGB 视频、状态、实际控制动作与模型原始预测。</p></div>
+      </section>
+      <section class="panel runtime-panel">
+        <div class="panel-heading"><h2>运行状态</h2></div>
+        <dl><div><dt>设备</dt><dd id="runtime-devices">等待连接</dd></div><div><dt>模型</dt><dd id="runtime-model">未加载</dd></div><div><dt>推理耗时</dt><dd id="runtime-latency">— ms</dd></div><div><dt>运行时长</dt><dd id="runtime-elapsed">00:00</dd></div><div><dt>已执行段</dt><dd id="runtime-chunks">0</dd></div></dl>
+        <p id="record-result" class="checkpoint-detail" role="status" hidden></p>
+        <button type="button" id="disconnect-all" class="button full" disabled>断开全部设备</button>
+        <p class="field-note">单独失能某条机械臂（断开关节与夹爪动力）：</p>
+        <div id="arm-disable-list" class="arm-disable-list"></div>
+        <p class="field-note">只控制已确认的从臂。运行时保留页面；切换到后台或关闭页面会请求停止。</p>
+      </section>
+    </aside>
+  </form>
+  <footer class="control-bar">
+    <div class="control-status"><span class="status-light"></span><div><strong id="inference-message" role="status">等待模型加载</strong><span id="save-status" role="status" aria-live="polite">配置仅保存在当前浏览器</span></div></div>
+    <div class="control-buttons">
+      <button id="home-motion" class="button motion-button" disabled title="仅已确认的从臂，速度 10%"><svg><use href="#i-home"/></svg><span>回到初始位置</span></button>
+      <button id="single-motion" class="button motion-button" disabled title="按上方设置时长闭环运行，到点自动停止"><svg><use href="#i-step"/></svg><span>单集测试<small>按时长运行</small></span></button>
+      <button id="continuous-motion" class="button primary motion-button" disabled title="每段结束后重新观测，直到停止"><svg><use href="#i-play"/></svg><span>持续执行</span></button>
+      <button id="stop-motion" class="button stop motion-button" disabled title="停止微动、模型执行或回位"><svg><use href="#i-stop"/></svg><span>停止执行</span><kbd>Esc</kbd></button>
+    </div>
+  </footer>
+  <dialog id="device-dialog" aria-labelledby="device-dialog-title">
+    <div class="dialog-heading"><div><h2 id="device-dialog-title">连接与分配设备</h2><p class="field-note">连接反馈 → 微动辨认机械臂 → 分配用途 → 按实物确认</p></div><div class="device-actions"><button type="button" id="stop-jog" class="button stop compact" disabled>停止微动 · Esc</button><button type="button" id="close-devices" class="button compact">完成</button></div></div>
+    <div class="device-toolbar"><button type="button" id="scan-devices" class="button primary">检测设备</button><button type="button" id="dialog-disconnect" class="button" disabled>断开全部</button><span id="scan-hint" class="field-note">先选择主界面的机械臂类型和使用方式。</span></div>
+    <p id="device-error" class="config-issue" role="alert" hidden></p>
+    <p id="jog-status" class="jog-status" role="status" aria-live="polite" hidden></p>
+    <details id="detection-details" hidden><summary>相机驱动检测结果</summary><p id="detection-message" class="field-note"></p></details>
+    <h3 id="arm-list-heading">机械臂 · CAN 通道</h3><div id="arm-list" class="device-list"><p class="field-note">点击检测设备。</p></div>
+    <p id="arm-role-hint" class="field-note">用途记录实物身份，不会自动切换硬件主从模式。模型执行只使用从臂。</p>
+    <h3 id="camera-list-heading">相机</h3><div id="camera-list" class="device-list camera-device-list"><p class="field-note">点击检测设备。</p></div>
+    <div class="device-confirm"><label class="acknowledge"><input type="checkbox" id="acknowledge-devices">已按实物核对以上机械臂与相机用途</label><button type="button" id="confirm-devices" class="button primary" disabled>确认设备用途</button><p id="confirmation-message" class="field-note">用途确认仅对本次设备连接有效；单臂/双臂需完整分配，至少选择一台相机。</p></div>
+  </dialog>
+  <dialog id="jog-dialog" aria-labelledby="jog-title">
+    <h2 id="jog-title">确认微动测试</h2>
+    <p id="jog-target"></p>
+    <p class="field-note">将切换到从臂受控模式并使能，以 5% 速度完成小幅往返。夹爪不动作；测试后保持使能，速度保留为 5%。关节空间 / EEF 的选择不影响这项设备识别测试。</p>
+    <p class="field-note">请确认该机械臂周围有活动空间。开始后可点击“停止微动”或按 Esc；停止后保持当前位置，不再自动返回。</p>
+    <div class="device-actions"><button type="button" id="cancel-jog" class="button">取消</button><button type="button" id="start-jog" class="button primary">开始微动</button></div>
+  </dialog>
+  <dialog id="disable-dialog" aria-labelledby="disable-title">
+    <h2 id="disable-title">确认失能</h2>
+    <p id="disable-target"></p>
+    <p class="field-note">失能会断开关节电机与夹爪动力。高位关节会因重力坠落（无阻尼），请先用手扶住机械臂或将其放低到安全位置，再确认。</p>
+    <p class="field-note">失能后关节反馈仍在；再次微动或执行会自动重新使能。如需完全断开通信，请用「断开连接」。</p>
+    <div class="device-actions"><button type="button" id="cancel-disable" class="button">取消</button><button type="button" id="start-disable" class="button stop">确认失能</button></div>
+  </dialog>
+  <dialog id="measure-dialog" aria-labelledby="measure-title">
+    <h2 id="measure-title">关节限位测量</h2>
+    <p id="measure-target"></p>
+    <p class="field-note">点击「开始拖动测量」后，机械臂会切到拖动（零力）模式，请手动把各关节拖到两端（不要硬顶机械限位），完成后点「停止测量并保存」。测量只读、不发送控制，结果按当前用途标签保存，供推理平台读取。</p>
+    <p id="measure-status" class="field-note" role="status" aria-live="polite"></p>
+    <div class="device-actions"><button type="button" id="cancel-measure" class="button">关闭</button><button type="button" id="measure-start" class="button primary">开始拖动测量</button><button type="button" id="measure-stop" class="button stop" hidden>停止测量并保存</button></div>
+  </dialog>
+</body>
+</html>
