@@ -20,6 +20,7 @@ HOME_TIMEOUT_SECONDS = 12.0
 # 主臂夹爪示教摩擦（1~10，越小捏合越省力；默认 1，曾误设为 8 导致捏夹爪费劲）。
 GRIPPER_TEACHING_FRICTION = 1
 ENABLE_TIMEOUT_SECONDS = 3.0
+LEADER_FEEDBACK_TIMEOUT_SECONDS = 3.0
 DISABLE_TIMEOUT_SECONDS = 3.0
 DISABLE_FINAL_CHECK_SECONDS = 1.0
 ALIGN_TOLERANCE_RAD = 0.1
@@ -465,7 +466,7 @@ def align_follower_before_recording(runtime: Runtime) -> None:
             confirm_stable_alignment(runtime, pair=pair)
 
 
-def _align_one_follower(runtime: Runtime, pair: pairing.Pair) -> None:
+def _align_one_follower(runtime: Runtime, pair: pairing.Pair) -> list[float] | None:
     """固定主臂目标，以限速平滑插值移动从臂；整个过程不写入数据。"""
     runtime.state["record_message"] = "正在读取主臂当前位置，请保持主臂静止…"
     initial = confirm_stable_alignment(runtime, require_aligned=False, pair=pair)
@@ -540,7 +541,7 @@ def _align_one_follower(runtime: Runtime, pair: pairing.Pair) -> None:
             settled = settled + 1 if reached and stable else 0
             if settled >= ALIGN_SAMPLES:
                 completed = True
-                return
+                return target[:]
             previous = latest
             time.sleep(ALIGN_INTERVAL_SECONDS)
         raise AlignmentError("等待从臂对齐到位超时，尚未录制；请检查机械臂后重试")
@@ -783,7 +784,11 @@ def _set_gripper_teaching(gripper: Any) -> bool:
     """设置示教参数；SDK 未确认时以新的参数读回为准，返回是否用了读回兜底。"""
     # max_range_config 必须与从臂夹爪的物理行程一致（实测均为 100mm）。
     # 曾误设为 0.07（70mm），导致示教器捏到最大也只输出 70mm，从臂夹爪永远开不满。
-    expected = {"teaching_range_per": 100, "max_range_config": 0.1, "teaching_friction": GRIPPER_TEACHING_FRICTION}
+    expected = {
+        "teaching_range_per": 100,
+        "max_range_config": 0.1,
+        "teaching_friction": GRIPPER_TEACHING_FRICTION,
+    }
     if gripper.set_gripper_teaching_pendant_param(**expected) is True:
         return False
     # SDK 要求设置 ACK + 参数一致；没有 ACK 时甚至不会发出参数查询。
@@ -835,6 +840,53 @@ def _prepare_leader_gripper(runtime: Runtime, ch: str) -> None:
         raise RuntimeError(info["status"]) from exc
 
 
+def _wait_for_leader_feedback(runtime: Runtime, ch: str) -> None:
+    """Wait for advancing teaching feedback after a mode switch, without motion."""
+    info = runtime.channels[ch]
+    deadline = time.monotonic() + LEADER_FEEDBACK_TIMEOUT_SECONDS
+    previous_stamps: tuple[float, ...] | None = None
+    while time.monotonic() < deadline:
+        if runtime.state["stop_requested"] or runtime.state["teleop_test_stop"]:
+            raise AlignmentError("已取消等待主臂示教反馈，尚未发送从臂运动")
+        sample = info["arm"].get_leader_joint_angles()
+        values = list(sample.msg) if sample is not None and sample.msg is not None else []
+        stamp = getattr(sample, "timestamp", 0)
+        parser = getattr(info["arm"], "_parser", None)
+        # V1.21 groups the seven teaching joints into four CAN packets. The
+        # SDK aggregate timestamp alone can advance while one group is stale.
+        stamps = (
+            tuple(
+                getattr(getattr(parser, "leader_joint_" + suffix, None), "timestamp", 0)
+                for suffix in ("12", "34", "56", "7")
+            )
+            if parser is not None
+            else (stamp,)
+        )
+        valid = (
+            len(values) == 7
+            and all(isinstance(value, (int, float)) and math.isfinite(value) for value in values)
+            and isinstance(stamp, (int, float))
+            and math.isfinite(stamp)
+            and stamp > 0
+            and all(
+                isinstance(value, (int, float)) and math.isfinite(value) and value > 0 for value in stamps
+            )
+        )
+        if valid:
+            if previous_stamps is not None and all(
+                value > previous for value, previous in zip(stamps, previous_stamps, strict=True)
+            ):
+                return
+            previous_stamps = stamps
+        else:
+            previous_stamps = None
+        time.sleep(0.02)
+    raise AlignmentError(
+        f"{info['label']} ({ch}) 切换示教模式后未收到持续更新的关节广播；"
+        "普通关节反馈不能替代示教反馈，尚未发送从臂运动"
+    )
+
+
 def _transition_one_pair(runtime: Runtime, pair: pairing.Pair) -> None:
     """切到采集模式；不失能关节，仅在主臂进入示教前释放夹爪残留控制。"""
     leader_ch, follower_ch = pair.leader, pair.follower
@@ -853,7 +905,15 @@ def _transition_one_pair(runtime: Runtime, pair: pairing.Pair) -> None:
     time.sleep(0.3)
     _prepare_leader_gripper(runtime, leader_ch)
     time.sleep(0.2)
-    set_control_role(runtime, leader_ch, "leader")
+    for attempt in range(2):
+        set_control_role(runtime, leader_ch, "leader")
+        runtime.channels[leader_ch]["status"] = "正在等待主臂示教关节反馈…"
+        try:
+            _wait_for_leader_feedback(runtime, leader_ch)
+            break
+        except AlignmentError:
+            if attempt or runtime.state["stop_requested"] or runtime.state["teleop_test_stop"]:
+                raise
     runtime.channels[leader_ch]["status"] = "主臂已使能（示教模式）"
     time.sleep(0.2)
     _exit_teaching_before_enable(runtime, follower_ch)
@@ -899,7 +959,8 @@ def start_measure_limits(runtime: Runtime, ch: str) -> None:
     runtime.measure_report = {}
     setattr(arm, "_channel", ch)
     runtime.state.update(
-        measuring=True, measure_channel=ch,
+        measuring=True,
+        measure_channel=ch,
         measure_status="请手动拖动各关节到两端（不要硬顶机械限位），完成后点停止测量",
     )
     info["status"] = "拖动测量中…"
@@ -913,7 +974,8 @@ def _measure_worker(runtime: Runtime, ch: str) -> None:
     arm = runtime.channels[ch]["arm"]
     try:
         runtime.measure_report = joint_limits.measure(
-            arm, runtime.measure_stop,
+            arm,
+            runtime.measure_stop,
             progress=lambda message: runtime.state.__setitem__("measure_status", message),
         )
     except Exception as exc:

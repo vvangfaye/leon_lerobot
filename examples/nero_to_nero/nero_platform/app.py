@@ -18,6 +18,7 @@ from . import (
     config,
     depth_images,
     devices,
+    hand_guiding,
     hardware_status,
     recorder,
     review,
@@ -128,6 +129,22 @@ def create_app(runtime: Runtime) -> Flask:
 
             threading.Thread(target=run_measure, daemon=True).start()
         return jsonify(ok=True)
+
+    @app.post("/api/arm/guide/start/<ch>")
+    def api_guide_start(ch: str) -> Any:
+        try:
+            hand_guiding.start(runtime, ch)
+            return jsonify(ok=True, msg=runtime.state["hand_guiding_message"])
+        except Exception as exc:
+            return jsonify(ok=False, msg=str(exc)), 409
+
+    @app.post("/api/arm/guide/stop/<ch>")
+    def api_guide_stop(ch: str) -> Any:
+        try:
+            hand_guiding.stop(runtime, ch)
+            return jsonify(ok=True, msg=runtime.state["hand_guiding_message"])
+        except Exception as exc:
+            return jsonify(ok=False, msg=str(exc)), 409
 
     @app.post("/api/arm/measure/stop/<ch>")
     def api_arm_measure_stop(ch: str) -> Any:
@@ -274,7 +291,9 @@ def create_app(runtime: Runtime) -> Flask:
     def jpeg_response(frame: Any) -> Response:
         # JPEG 编码只在浏览器请求线程执行，保持数据集图像为 RGB。
         return Response(
-            camera_preview.encode_jpeg(frame), mimetype="image/jpeg", headers={"Cache-Control": "no-store"},
+            camera_preview.encode_jpeg(frame),
+            mimetype="image/jpeg",
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.get("/api/camera/<cam_id>/frame")
@@ -372,12 +391,20 @@ def create_app(runtime: Runtime) -> Flask:
             },
             device_busy=sorted(runtime.device_busy),
             teleop_test_active=runtime.state["teleop_test_active"],
+            teleop_test_kind=runtime.state.get("teleop_test_kind", "normal"),
+            teleop_test_ready=runtime.state.get("teleop_test_ready", False),
+            teleop_test_error=runtime.state.get("teleop_test_error"),
+            teleop_test_paused=runtime.state.get("teleop_test_paused", False),
+            teleop_test_lag_deg=runtime.state.get("teleop_test_lag_deg", 0.0),
             teleop_test_message=runtime.state["teleop_test_message"],
             teleop_gripper_force=runtime.state["teleop_gripper_force"],
             gripper_force=runtime.state["gripper_force"],
             measuring=runtime.state["measuring"],
             measure_status=runtime.state["measure_status"],
             measure_channel=runtime.state["measure_channel"],
+            hand_guiding_channel=runtime.state.get("hand_guiding_channel"),
+            hand_guiding_phase=runtime.state.get("hand_guiding_phase"),
+            hand_guiding_message=runtime.state.get("hand_guiding_message"),
             camera_previews=dict(runtime.preview_states),
             camera_focus=dict(runtime.camera_focus),
             camera_focus_settings=dict(runtime.state["camera_focus_settings"]),
@@ -510,6 +537,26 @@ def create_app(runtime: Runtime) -> Flask:
         ok, msg = recorder.stop_teleop_test(runtime)
         return jsonify(ok=ok, msg=msg), 200 if ok else 409
 
+    @app.post("/api/teleop/test/resume")
+    def api_teleop_test_resume() -> Any:
+        ok, msg = recorder.resume_teleop_test(runtime)
+        return jsonify(ok=ok, msg=msg), 202 if ok else 409
+
+    @app.post("/api/teleop/test/catchup")
+    def api_teleop_test_catchup() -> Any:
+        ok, msg = recorder.resume_teleop_test(runtime, catchup=True)
+        return jsonify(ok=ok, msg=msg), 202 if ok else 409
+
+    @app.post("/api/teleop/survey/start")
+    def api_teleop_survey_start() -> Any:
+        data = request.get_json(silent=True) or {}
+        if data.get("alignment", "relative") not in ("relative", "absolute"):
+            return jsonify(ok=False, msg="alignment 必须为 relative 或 absolute"), 400
+        ok, msg = recorder.start_teleop_test(
+            runtime, survey=True, absolute=data.get("alignment") == "absolute"
+        )
+        return jsonify(ok=ok, msg=msg), 202 if ok else 409
+
     @app.post("/api/gripper/force")
     def api_gripper_force() -> Any:
         data = request.get_json(silent=True) or {}
@@ -539,10 +586,14 @@ def create_app(runtime: Runtime) -> Flask:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Nero 数据采集工作台")
+    parser.add_argument("--host", default="127.0.0.1", help="监听地址；局域网访问时填写本机局域网 IP")
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--config", type=Path, default=EXAMPLE_DIR / "collect_config.platform.json")
     parser.add_argument("--dataset-root", type=Path, default=Path.home() / ".cache/huggingface/lerobot")
     parser.add_argument("--check", action="store_true", help="仅检查导入、配置和网页接口，不连接硬件")
+    parser.add_argument(
+        "--skip-camera-preview", action="store_true", help="跳过启动相机预览，先恢复机械臂控制网页"
+    )
     args = parser.parse_args()
     runtime = Runtime(config_path=args.config.resolve(), dataset_root=args.dataset_root.resolve())
     config.load_saved(runtime, legacy_path=EXAMPLE_DIR / "collect_config.json")
@@ -569,18 +620,20 @@ def main() -> None:
         print(f"数据目录: {recorder.dataset_path(runtime)}")
         return
     print("Nero 数据采集工作台（单对 / 左右双对，共同采样时间轴）")
-    print(f"浏览器打开: http://127.0.0.1:{args.port}")
+    print(f"浏览器打开: http://{args.host}:{args.port}")
     print(f"配置文件: {runtime.config_path}")
     print(f"数据目录: {recorder.dataset_path(runtime)}")
     try:
-        if not runtime.state["config_error"]:
+        if not runtime.state["config_error"] and not args.skip_camera_preview:
             cameras.open_preview_cams(runtime)
-        app.run(host="127.0.0.1", port=args.port, debug=False, threaded=True, use_reloader=False)
+        app.run(host=args.host, port=args.port, debug=False, threaded=True, use_reloader=False)
     finally:
         print("等待录制线程保存并收尾...")
         with runtime.lifecycle_lock:
             runtime.state["shutting_down"] = True
         try:
+            if runtime.state.get("hand_guiding_channel") is not None:
+                hand_guiding.stop(runtime, runtime.state["hand_guiding_channel"])
             if runtime.home_thread is not None:
                 runtime.home_thread.join()
             while runtime.state["disabling"] or runtime.state["ending"]:

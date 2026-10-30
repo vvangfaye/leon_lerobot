@@ -15,6 +15,17 @@ class CommandError(RuntimeError):
     """一侧指令失败即停止整集；不把部分下发的帧作为完整数据，也不自动重发。"""
 
 
+def native_action(readings: dict[str, list[float]]) -> list[float]:
+    """VLA capture's absolute seven-joint target and 0–90 mm gripper target."""
+    return readings["主臂关节"][:] + [min(max(readings["主臂夹爪"][0], 0.0), 0.09)]
+
+
+def send_js_action(follower: dict[str, Any], action: list[float], force: float) -> None:
+    """Shared VLA/RL manual follow command: no additional trajectory filtering."""
+    follower["arm"].move_js(action[:7])
+    follower["gripper"].move_gripper_m(value=action[7], force=force)
+
+
 class RobotFeedback:
     def __init__(self, leader: dict, follower: dict):
         if leader["gripper"] is None or follower["gripper"] is None:

@@ -112,13 +112,14 @@ class SamplingTests(unittest.TestCase):
 
         def read():
             sample = original()
-            sample.msg.value = 0.09
+            sample.msg.value = 0.105
             return sample
 
         with patch.object(gripper, "get_gripper_ctrl_states", side_effect=read):
             self.record(runtime, clock)
-        self.assertTrue(all(e[2]["value"] == 0.07 for e in events if e[1] == "move"))
-        self.assertTrue(all(abs(float(f["action"][7]) - 0.07) < 1e-6 for f in runtime.dataset.frames))
+        # NERO's existing VLA sender caps teaching widths at 90 mm.
+        self.assertTrue(all(e[2]["value"] == 0.09 for e in events if e[1] == "move"))
+        self.assertTrue(all(abs(float(f["action"][7]) - 0.09) < 1e-6 for f in runtime.dataset.frames))
 
     def test_duplicate_camera_frames_are_counted_per_camera_and_written_to_report(self) -> None:
         runtime, clock, _ = self.make_runtime()

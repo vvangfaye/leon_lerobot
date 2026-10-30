@@ -40,6 +40,40 @@ const inventory={
 };
 const titles=()=>element('cams').children.map(card=>card.children[0].textContent);
 (async()=>{
+  // A real <select> clears its value when the saved choice has no <option>.
+  // The generic Element mock previously accepted "all" even when the page did not.
+  const selectMarkup=html.match(/<select id="record_camera"[^>]*>([\s\S]*?)<\/select>/)[1];
+  const choices=new Set([...selectMarkup.matchAll(/<option\b[^>]*\bvalue="([^"]*)"/g)].map(match=>match[1]));
+  const recordCamera=element('record_camera');
+  let selected=recordCamera.value;
+  Object.defineProperty(recordCamera,'value',{
+    get(){return selected;},
+    set(value){selected=choices.has(String(value)) ? String(value) : '';},
+  });
+  const originalFetch=context.fetch;
+  const savedConfig={
+    pair_mode:'single',leader_label:'主右',follower_label:'从右',
+    record_camera:'all',fps:30,episode_sec:180,repo_id:'nero/test',task:'packing',
+    follow_motion_mode:'js',control_frequency:100,camera_focus_settings:{},
+    camera_resolution:{left:{width:640,height:480,scale:1},right:{width:640,height:480,scale:1},head:{width:1280,height:720,scale:1}},
+    arms:{can0:'从左',can1:'从右',can2:'主左',can3:'主右'},
+  };
+  context.fetch=async url=>{
+    assert.equal(url,'/api/config');
+    return {ok:true,json:async()=>savedConfig};
+  };
+  await context.loadConfig();
+  context.updateCameraSummary();
+  assert.equal(recordCamera.value,'all','保存的全部相机选择必须在真实下拉框中存在');
+  assert.deepEqual(Array.from(context.selectedRoles()),['left','right','head']);
+  assert.equal(context.getConfig().record_camera,'all');
+  assert.match(element('record-camera-summary').textContent,/3 路数据/);
+  recordCamera.value='head';
+  context.updateCameraSummary();
+  assert.deepEqual(Array.from(context.selectedRoles()),['head']);
+  assert.match(element('record-camera-summary').textContent,/1 路数据/);
+  recordCamera.value='all';
+  context.fetch=originalFetch;
   context.renderCameras({cameras:inventory,detection:{realsense:{label:'RealSense',message:'检测到 1 台'}}});
   assert.deepEqual(titles(),['相机 1','相机 2','相机 3']);
   assert.equal(element('cams').children.length,3,'未检测到的历史配置不占编号');

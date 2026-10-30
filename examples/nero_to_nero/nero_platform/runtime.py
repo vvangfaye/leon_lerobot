@@ -88,6 +88,10 @@ def target_control_hz(settings: dict[str, Any]) -> int:
 
 def default_state() -> dict[str, Any]:
     return {
+        "hand_guiding_channel": None,
+        "hand_guiding_phase": "idle",
+        "hand_guiding_message": "从右已使能后，可直接拖动摆姿态；不保存限位、不录制数据。",
+        "hand_guiding_gripper_m": None,
         "fps": 30,
         "follow_motion_mode": "js",
         "control_frequency": 100,
@@ -145,6 +149,10 @@ def default_state() -> dict[str, Any]:
         "teleop_test_active": False,
         "teleop_test_message": "",
         "teleop_test_stop": False,
+        "teleop_test_paused": False,
+        "teleop_test_resume": False,
+        "teleop_test_catchup": False,
+        "teleop_test_lag_deg": 0.0,
         # 从臂夹爪夹持力（N），跟随循环每次下发实时读取，可采集过程中调整。
         "gripper_force": 10.0,
         # 遥操作测试专用夹持力（N），默认 3N，训练时更轻。
@@ -191,12 +199,14 @@ class Runtime:
     home_continue_event: threading.Event = field(default_factory=threading.Event)
     device_busy: set[str] = field(default_factory=set)
     lifecycle_lock: Any = field(default_factory=threading.RLock)
+    hand_guiding_lock: Any = field(default_factory=threading.Lock)
     feedback_seen: dict[str, Any] = field(default_factory=dict)
 
     def operation_busy(self, *, include_recording: bool = True, channel: str | None = None) -> bool:
         """由调用者持有 lifecycle_lock；统一互斥判定，收尾可等待录制线程。"""
         return bool(
             self.state["shutting_down"]
+            or self.state.get("hand_guiding_channel") is not None
             or any(self.state[key] for key in ("homing", "disabling", "ending", "deleting"))
             or (include_recording and self.state["recording"])
             or self.state["teleop_test_active"]

@@ -22,6 +22,7 @@ from . import (
     dataset_transaction,
     depth_images,
     devices,
+    hardware_status,
     pairing,
     resolution,
     sampling,
@@ -29,6 +30,7 @@ from . import (
 )
 from .camera_model import is_depth, stream_names
 from .runtime import Runtime, target_control_hz
+from .survey_control import SurveyAlignmentError, SurveyControl
 
 
 def dataset_path(runtime: Runtime) -> Path:
@@ -263,7 +265,7 @@ def do_disconnect(runtime: Runtime, reopen_preview: bool = True) -> None:
         cameras.open_preview_cams(runtime)
 
 
-def start_teleop_test(runtime: Runtime) -> tuple[bool, str]:
+def start_teleop_test(runtime: Runtime, *, survey: bool = False, absolute: bool = False) -> tuple[bool, str]:
     """启动只遥操作、不录制数据的训练模式；不需要相机。"""
     with runtime.lifecycle_lock:
         if runtime.state["shutting_down"]:
@@ -277,13 +279,24 @@ def start_teleop_test(runtime: Runtime) -> tuple[bool, str]:
         if runtime.state["teleop_test_active"]:
             return False, "遥操作测试已在进行"
         try:
-            pairing.resolve(runtime)
+            pairs = pairing.resolve(runtime)
+            if survey and (len(pairs) != 1 or (pairs[0].leader, pairs[0].follower) != ("can3", "can1")):
+                return False, "范围测量只支持主右 can3 → 从右 can1"
         except ValueError as exc:
             return False, str(exc)
         runtime.state.update(
             teleop_test_active=True,
             teleop_test_message="正在使能主从臂并切换跟随模式…",
             teleop_test_stop=False,
+            teleop_test_kind=("workspace_aligned" if absolute else "workspace_survey")
+            if survey
+            else "normal",
+            teleop_test_ready=False,
+            teleop_test_error=None,
+            teleop_test_paused=False,
+            teleop_test_resume=False,
+            teleop_test_catchup=False,
+            teleop_test_lag_deg=0.0,
         )
         try:
             runtime.teleop_test_thread = threading.Thread(
@@ -313,11 +326,29 @@ def stop_teleop_test(runtime: Runtime) -> tuple[bool, str]:
     return True, "遥操作测试已停止"
 
 
+def resume_teleop_test(runtime: Runtime, *, catchup: bool = False) -> tuple[bool, str]:
+    """Request a resume; the worker verifies fresh alignment before any command."""
+    with runtime.lifecycle_lock:
+        if not runtime.state["teleop_test_active"] or not runtime.state.get("teleop_test_paused"):
+            return False, "当前没有等待恢复的跟随"
+        if catchup and runtime.state.get("teleop_test_kind") != "workspace_aligned":
+            return False, "低速追齐仅适用于一比一跟随"
+        runtime.state["teleop_test_resume"] = True
+        runtime.state["teleop_test_catchup"] = catchup
+    return True, "正在从当前实测位置低速追齐" if catchup else "正在检查主从对齐；符合条件后恢复跟随"
+
+
 def _teleop_test_loop(runtime: Runtime) -> None:
     """只跟随、不采样相机、不写数据集；使能主从臂后循环下发从臂指令。"""
+    previous_record_phase = runtime.state["record_phase"]
+    previous_record_message = runtime.state["record_message"]
     try:
         pairs = pairing.resolve(runtime)
+        survey = runtime.state.get("teleop_test_kind") in ("workspace_survey", "workspace_aligned")
+        absolute = runtime.state.get("teleop_test_kind") == "workspace_aligned"
         motion_mode = runtime.state["follow_motion_mode"]
+        if survey:
+            motion_mode = "js"
         if motion_mode not in ("js", "j"):
             raise ValueError("跟随方式配置无效，尚未下发指令")
         control_hz = target_control_hz(runtime.state)
@@ -325,9 +356,10 @@ def _teleop_test_loop(runtime: Runtime) -> None:
         with runtime.lifecycle_lock:
             runtime.state["teleop_test_message"] = "使能主从臂并切换示教/跟随模式…"
         devices.transition_to_collection(runtime)
-        with runtime.lifecycle_lock:
-            runtime.state["teleop_test_message"] = "夹爪示教参数已设置（行程 100mm），正在对齐从臂…"
-        devices.align_follower_before_recording(runtime)
+        if not survey:
+            with runtime.lifecycle_lock:
+                runtime.state["teleop_test_message"] = "夹爪示教参数已设置（行程 100mm），正在对齐从臂…"
+            devices.align_follower_before_recording(runtime)
         if runtime.state["teleop_test_stop"]:
             return
         feedbacks = [
@@ -345,10 +377,41 @@ def _teleop_test_loop(runtime: Runtime) -> None:
             time.sleep(0.01)
             read_all()
         control = timing.ControlTiming(control_hz, time.monotonic())
+        survey_control = None
+
+        def pause_survey(message: str, readings: list[dict], *, hold: bool = True) -> None:
+            if hold:
+                for pair, values in zip(pairs, readings, strict=True):
+                    hardware_status.require_ready_for_motion(runtime, pair.follower)
+                    runtime.channels[pair.follower]["arm"].move_js(values["从臂关节"])
+            with runtime.lifecycle_lock:
+                runtime.state.update(
+                    teleop_test_paused=True,
+                    teleop_test_ready=False,
+                    teleop_test_resume=False,
+                    teleop_test_catchup=False,
+                    teleop_test_message=f"跟随暂停：{message}。主臂仍可拖动；点“低速追齐并恢复”让从臂缓慢跟上。",
+                )
+
+        if survey:
+            initial = read_all()
+            try:
+                survey_control = SurveyControl(initial[0], time.monotonic(), absolute=absolute)
+            except SurveyAlignmentError as exc:
+                # The follower is already holding; do not move it to match a
+                # displaced master. Keep the master in teaching mode instead.
+                pause_survey(str(exc), initial, hold=False)
         first_command = True
         attempted_followers: dict[str, tuple[float, float, bool] | None] = {}
         with runtime.lifecycle_lock:
-            runtime.state["teleop_test_message"] = "遥操作测试进行中：拖动主臂，从臂跟随（不录制数据）"
+            if not runtime.state.get("teleop_test_paused"):
+                runtime.state["teleop_test_message"] = "遥操作测试进行中：拖动主臂，从臂跟随（不录制数据）"
+                if survey:
+                    mapping = "对齐后一比一跟随" if absolute else "主臂相对关节跟随，0.5 倍"
+                    runtime.state["teleop_test_message"] = (
+                        f"低速遥操作：{mapping}，最高 5°/秒；停止按钮结束跟随"
+                    )
+                runtime.state["teleop_test_ready"] = True
         while not runtime.state["teleop_test_stop"]:
             started = time.monotonic()
             if started + 1e-9 < control.deadline:
@@ -357,29 +420,64 @@ def _teleop_test_loop(runtime: Runtime) -> None:
             control_slot = control.begin(started)
             try:
                 readings = read_all()
+                if survey and runtime.state.get("teleop_test_paused"):
+                    if runtime.state.get("teleop_test_resume"):
+                        runtime.state["teleop_test_resume"] = False
+                        catchup = runtime.state.get("teleop_test_catchup", False)
+                        runtime.state["teleop_test_catchup"] = False
+                        try:
+                            survey_control = SurveyControl(
+                                readings[0], time.monotonic(), absolute=absolute, allow_catchup=catchup
+                            )
+                        except SurveyAlignmentError as exc:
+                            pause_survey(str(exc), readings, hold=False)
+                        else:
+                            with runtime.lifecycle_lock:
+                                runtime.state.update(
+                                    teleop_test_paused=False,
+                                    teleop_test_ready=True,
+                                    teleop_test_message="已恢复低速跟随；主臂保持可拖动，最高 5°/秒",
+                                )
+                            control = timing.ControlTiming(control_hz, time.monotonic())
+                    time.sleep(0.02)
+                    continue
                 actions = []
                 for pair, values in zip(pairs, readings, strict=True):
                     angles = values["主臂关节"]
+                    if survey_control is not None:
+                        actions.append(survey_control.action(values, started))
+                        if absolute:
+                            lag = survey_control.lag_deg
+                            runtime.state["teleop_test_lag_deg"] = lag
+                            runtime.state["teleop_test_message"] = (
+                                f"低速跟随中：主从最大差 {lag:.1f}°，最高 5°/秒；停止按钮可取消追踪"
+                            )
+                        continue
                     if first_command:
                         devices.require_joint_alignment(
                             angles, values["从臂关节"], f"{pair.display} 第一帧主臂指令与从臂"
                         )
-                    actions.append(angles[:] + [min(max(values["主臂夹爪"][0], 0.0), 0.09)])
+                    actions.append(sampling.native_action(values))
                 first_command = False
                 for pair, action, feedback in zip(pairs, actions, feedbacks, strict=True):
                     follower = runtime.channels[pair.follower]
                     if motion_mode == "j":
                         attempted_followers[pair.follower] = feedback.seen.get("从臂关节")
                         follower["arm"].move_j(action[:7])
+                        follower["gripper"].move_gripper_m(
+                            value=action[7], force=3.0 if survey else runtime.state["teleop_gripper_force"]
+                        )
                     else:
-                        follower["arm"].move_js(action[:7])
-                    follower["gripper"].move_gripper_m(
-                        value=action[7], force=runtime.state["teleop_gripper_force"]
-                    )
+                        sampling.send_js_action(
+                            follower, action, 3.0 if survey else runtime.state["teleop_gripper_force"]
+                        )
                 control.finish(control_slot, started, time.monotonic(), control.frames, None)
+            except SurveyAlignmentError as exc:
+                pause_survey(str(exc), read_all())
             except (sampling.FeedbackError, sampling.CommandError) as exc:
                 with runtime.lifecycle_lock:
                     runtime.state["teleop_test_message"] = f"遥操作测试中止：{exc}"
+                    runtime.state["teleop_test_error"] = str(exc)
                 break
             except Exception as exc:
                 traceback.print_exc()
@@ -388,14 +486,25 @@ def _teleop_test_loop(runtime: Runtime) -> None:
                 raise
         if motion_mode == "j" and attempted_followers:
             devices.hold_planned_followers(runtime, attempted_followers, time.monotonic())
+        if survey:
+            # Stop the short servo target instead of finishing a lagging command.
+            for pair, values in zip(pairs, read_all(), strict=True):
+                runtime.channels[pair.follower]["arm"].move_js(values["从臂关节"])
     except Exception as exc:
         traceback.print_exc()
         with runtime.lifecycle_lock:
             runtime.state["teleop_test_message"] = f"遥操作测试失败: {exc}"
+            runtime.state["teleop_test_error"] = str(exc)
     finally:
         _leave_leader_mode(runtime)
         with runtime.lifecycle_lock:
+            runtime.state["record_phase"] = previous_record_phase
+            runtime.state["record_message"] = previous_record_message
             runtime.state["teleop_test_active"] = False
+            runtime.state["teleop_test_ready"] = False
+            runtime.state["teleop_test_paused"] = False
+            runtime.state["teleop_test_resume"] = False
+            runtime.state["teleop_test_catchup"] = False
             runtime.state["teleop_test_stop"] = False
             if not runtime.state["teleop_test_message"].startswith("遥操作测试失败"):
                 runtime.state["teleop_test_message"] = "遥操作测试已结束"
@@ -871,7 +980,7 @@ def _record_episode(runtime: Runtime, camera_names: list[str]) -> None:
             if first_command:
                 devices.require_joint_alignment(angles, fangles, f"{pair.display} 第一帧主臂指令与从臂")
             robot_samples[pair.name]["leader_joint_positions"] = angles[:]
-            actions.append(angles[:] + [min(max(values["主臂夹爪"][0], 0.0), 0.09)])
+            actions.append(sampling.native_action(values))
             observations.extend(fangles + values["从臂夹爪"])
         first_command = False
         for pair, action, feedback in zip(pairs, actions, feedbacks, strict=True):
@@ -883,8 +992,9 @@ def _record_episode(runtime: Runtime, camera_names: list[str]) -> None:
                     attempted_followers[pair.follower] = feedback.seen.get("从臂关节")
                     follower["arm"].move_j(action[:7])
                 else:
-                    follower["arm"].move_js(action[:7])
-                follower["gripper"].move_gripper_m(value=action[7], force=runtime.state["gripper_force"])
+                    sampling.send_js_action(follower, action, runtime.state["gripper_force"])
+                if motion_mode == "j":
+                    follower["gripper"].move_gripper_m(value=action[7], force=runtime.state["gripper_force"])
             except Exception as exc:
                 raise sampling.CommandError(
                     f"{pair.display} 跟随指令下发失败：{exc}；本帧不写入，不重试指令"

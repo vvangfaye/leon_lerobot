@@ -91,7 +91,10 @@
     <div class="teleop-test">
       <div class="field"><label for="teleop_gripper_force">遥操作夹持力 / N</label><input id="teleop_gripper_force" type="number" min="0" max="32" step="0.5" value="3" onchange="setTeleopGripperForce(this.value)"><div class="muted">遥操作测试时的从臂夹持力，默认 3N，实时生效。</div></div>
       <div class="row"><button class="go action" id="btn-teleop-test" onclick="toggleTeleopTest()" disabled>遥操作测试</button></div>
+      <div class="row"><button class="go action" id="btn-teleop-resume" onclick="resumeTeleopTest(true)" hidden>低速追齐并恢复</button></div>
       <div id="teleop-test-status" class="record-detail" aria-live="polite">连接主从臂后可开始只遥操作、不录制数据的训练测试。</div>
+      <div class="row"><button class="go action" id="btn-hand-guide" onclick="toggleHandGuiding()" disabled>右从臂直接拖动</button></div>
+      <div id="hand-guide-status" class="record-detail" aria-live="polite">仅从右 can1；进入时释放夹爪，不捏夹爪。结束后保持关节使能，不保存限位。</div>
     </div>
 
     <hr class="divider">
@@ -116,7 +119,7 @@
         <section class="notice span-3" aria-labelledby="record-cameras-title">
           <h3 id="record-cameras-title">录制相机</h3>
           <div class="config-grid">
-            <div class="field"><label for="record_camera">录制角色</label><select id="record_camera" onchange="updateCameraSummary(); voice.say('camera_changed')"><option value="right">右侧（附带已分配头部）</option><option value="left">左侧（附带已分配头部）</option><option value="both" selected>左侧＋右侧（附带已分配头部）</option></select></div>
+            <div class="field"><label for="record_camera">录制角色</label><select id="record_camera" onchange="updateCameraSummary(); voice.say('camera_changed')"><option value="right">右侧（附带已分配头部）</option><option value="left">左侧（附带已分配头部）</option><option value="both" selected>左侧＋右侧（附带已分配头部）</option><option value="head">仅头部</option><option value="all">全部已分配相机</option></select></div>
           </div>
           <div id="record-camera-summary" class="record-detail" aria-live="polite"></div>
           <hr class="divider">
@@ -273,6 +276,7 @@ let stopRequestPending = false;
 let cancelRequestPending = false;
 let deleteLastRequestPending = false;
 let teleopRequestPending = false;
+let handGuidingPending = false;
 const armRequestPending = new Set();
 let commandError = "";
 let latestStatus = null;
@@ -1047,6 +1051,25 @@ async function toggleTeleopTest(){
   }catch(error){ operationError(error); }
   finally{ teleopRequestPending = false; await refresh(); }
 }
+async function toggleHandGuiding(){
+  if(handGuidingPending) return;
+  handGuidingPending = true;
+  document.getElementById("btn-hand-guide").disabled = true;
+  try{
+    const status = await getJson("/api/status");
+    const action = status.hand_guiding_channel ? "stop" : "start";
+    await post(`/api/arm/guide/${action}/can1`);
+  }catch(error){ operationError(error); }
+  finally{ handGuidingPending = false; await refresh(); }
+}
+async function resumeTeleopTest(catchup=false){
+  if(teleopRequestPending || safetyPending) return;
+  teleopRequestPending = true;
+  try{
+    await post(catchup ? "/api/teleop/test/catchup" : "/api/teleop/test/resume");
+  }catch(error){ operationError(error); }
+  finally{ teleopRequestPending = false; await refresh(); }
+}
 async function setGripperForce(value){
   const num = parseFloat(value);
   if(!Number.isFinite(num)) return;
@@ -1252,7 +1275,15 @@ async function refresh(){
     const teleopBusy = busy && !teleopActive;  // 遥操作测试进行中自身按钮仍可点（用于停止）
     document.getElementById("btn-teleop-test").disabled = teleopActive ? teleopRequestPending : (teleopBusy || !homeReady || s.connected || s.recording || motionBlocked || unfinished);
     document.getElementById("btn-teleop-test").textContent = teleopActive ? "停止遥操作测试" : "遥操作测试";
-    document.getElementById("teleop-test-status").textContent = teleopActive ? s.teleop_test_message : "连接主从臂后可开始只遥操作、不录制数据的训练测试。";
+    document.getElementById("btn-teleop-resume").hidden = !(teleopActive && s.teleop_test_paused);
+    document.getElementById("btn-teleop-resume").disabled = teleopRequestPending;
+    document.getElementById("teleop-test-status").textContent = s.teleop_test_message || "连接主从臂后可开始只遥操作、不录制数据的训练测试。";
+    const guideActive = s.hand_guiding_channel === "can1";
+    const guideArm = s.arms.can1;
+    const guideReady = guideArm?.label === "从右" && guideArm?.detected && guideArm?.hardware?.enabled?.state === "enabled";
+    document.getElementById("btn-hand-guide").disabled = handGuidingPending || (guideActive ? ["starting", "stopping"].includes(s.hand_guiding_phase) : (busy || s.connected || !guideReady || motionBlocked));
+    document.getElementById("btn-hand-guide").textContent = guideActive ? "结束右从臂拖动" : "右从臂直接拖动";
+    document.getElementById("hand-guide-status").textContent = s.hand_guiding_message || "进入时释放夹爪；结束后读取标定点。";
     document.getElementById("disable-status").textContent = s.disable_status || "";
     const closing = s.close_result;
     document.getElementById("close-result").hidden = !closing;
