@@ -147,6 +147,22 @@ class ControllerTests(unittest.TestCase):
             self.controller.move_joints("right", [0, 0, 0, 0, 0, 51, 0])
         self.assertEqual(self.backend.commands, [])
 
+    def test_lagging_stream_keeps_sending_endpoint_until_feedback_arrives(self) -> None:
+        self.controller.prepare("right")
+
+        def lagging_write(side: str, goal: list[float]) -> None:
+            self.backend.commands.append((side, "joints", list(goal)))
+            current = self.backend.states[side].joints
+            self.backend.states[side].joints = [
+                a + 0.05 * (b - a) for a, b in zip(current, goal, strict=True)
+            ]
+
+        with patch.object(self.backend, "write_joints", side_effect=lagging_write):
+            result = self.controller.move_joints("right", [5, 0, 0, 0, 0, 0, 0], duration_s=1)
+        self.assertGreater(len(self.backend.commands), 50)
+        self.assertLess(abs(result["joints_deg"][0] - 5), 0.5)
+        self.assertTrue(all(0 <= command[2][0] <= math.radians(5) for command in self.backend.commands))
+
 
 class ConfigTests(unittest.TestCase):
     def test_followers_are_selected_by_role_not_old_defaults(self) -> None:

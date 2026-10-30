@@ -251,8 +251,15 @@ class Controller:
             for _ in range(100):
                 self._check_generation(generation)
                 current = self._state(side, ready=True)
-                if max(abs(a - b) for a, b in zip(target, current.joints, strict=True)) <= math.radians(0.5):
+                error = max(abs(a - b) for a, b in zip(target, current.joints, strict=True))
+                if error <= math.radians(0.5):
                     return self.state(side)
+                if error > MAX_JOINT_DELTA:
+                    raise RuntimeError("Measured tracking error exceeded 5 degrees")
+                # JS targets are streamed. Keep sending the same validated
+                # endpoint while settling; stopping the stream immediately
+                # after interpolation can leave a lagging arm short of it.
+                self.backend.write_joints(side, target)
                 self.sleep(PERIOD_S)
             raise TimeoutError("Arm did not reach the target within 0.5 degrees")
         except Exception:
