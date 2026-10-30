@@ -1,0 +1,26 @@
+{
+  "task": "Pick up the wooden ornament from the table and place it in its packaging.",
+  "channel": "can1",
+  "workspace_min_m": null,
+  "workspace_max_m": null,
+  "start_joints_rad": null,
+  "tcp_offset_m": null,
+  "geometry_verified": false,
+  "cameras": {
+    "head": "/dev/v4l/by-id/usb-DE475C08_P050302_SN0002_2K_USB_Camera_DE475C08_P050302_SN0002-video-index0",
+    "right": "/dev/v4l/by-id/usb-SN0002_1080P_USB_Camera_44434000_P030102_SN0002-video-index0"
+  },
+  "device": "cpu",
+  "hz": 5,
+  "episode_seconds": 120,
+  "translation_step_m": 0.001,
+  "yaw_step_rad": 0.017453292519943295,
+  "gripper_step_m": 0.002,
+  "gripper_max_m": 0.07,
+  "gripper_force_n": 3,
+  "max_joint_step_rad": 0.008726646259971648,
+  "batch_size": 32,
+  "replay_capacity": 5000,
+  "learning_starts": 64,
+  "updates_per_episode": 50
+}
