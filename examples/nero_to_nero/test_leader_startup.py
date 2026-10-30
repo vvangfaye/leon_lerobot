@@ -28,6 +28,29 @@ def test_waits_for_delayed_teaching_stream_without_motion(setup, monkeypatch):
     assert not any(event[1] in ("enable", "move_js", "move_j", "disable") for event in events)
 
 
+def test_teaching_wait_honors_current_stop_request(setup):
+    runtime, events, clock, _ = setup
+    runtime.state["stop_requested"] = True
+    with pytest.raises(devices.AlignmentError, match="已取消"):
+        devices._wait_for_leader_feedback(runtime, "can0")
+    assert clock.now == 0
+    assert events == []
+
+
+def test_new_teleop_clears_previous_session_stop_before_starting(setup, monkeypatch):
+    runtime, events, _, _ = setup
+    runtime.state.update(stop_requested=True, teleop_test_stop=True, connected=False)
+    observed = []
+    worker = SimpleNamespace(
+        start=lambda: observed.append((runtime.state["stop_requested"], runtime.state["teleop_test_stop"]))
+    )
+    monkeypatch.setattr(recorder.threading, "Thread", lambda **kwargs: worker)
+    ok, _ = recorder.start_teleop_test(runtime)
+    assert ok
+    assert observed == [(False, False)]
+    assert events == []
+
+
 @pytest.mark.parametrize("kind", ["missing", "stale", "partial"])
 def test_no_fresh_teaching_stream_stops_before_enabling_follower(setup, monkeypatch, kind):
     runtime, events, _, leader = setup

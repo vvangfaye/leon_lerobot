@@ -287,6 +287,7 @@ def start_teleop_test(runtime: Runtime, *, survey: bool = False, absolute: bool 
         runtime.state.update(
             teleop_test_active=True,
             teleop_test_message="正在使能主从臂并切换跟随模式…",
+            stop_requested=False,
             teleop_test_stop=False,
             teleop_test_kind=("workspace_aligned" if absolute else "workspace_survey")
             if survey

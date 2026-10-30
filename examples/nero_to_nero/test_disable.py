@@ -440,6 +440,8 @@ class DisableTests(unittest.TestCase):
         self.assertTrue(self.disable().json["ok"])
         # 退出示教之后，旧主臂广播与实际姿态可能不同，检查实际关节反馈。
         self.assertEqual(devices.check_alignment(self.runtime), (True, ""))
+        # 与新一轮录制/遥操入口一致，先清除上一会话的停止请求。
+        self.runtime.state["stop_requested"] = False
         devices.transition_to_collection(self.runtime)
         for ch in ("can0", "can1"):
             self.assertIn("已使能", self.runtime.channels[ch]["status"])
