@@ -11,6 +11,7 @@
     version: 2, robot: "nero", arms: "dual", space: "eef", model: "pi05",
     checkpointSource: "outputs",
     checkpoint: "", customPath: "", task: "", record: false, datasetName: "", outputDir: "", duration: 60,
+    rtcEnabled: true, rtcHorizon: 10,
   };
   let config = {...defaults};
   let checkpoints = [];
@@ -40,11 +41,12 @@
     storageError = "浏览器配置不可用，本次可继续选择。";
   }
   for (const [key, values] of Object.entries({
-    robot: ["nero", "piper"], arms: ["single", "dual"], space: ["joint", "eef"], model: ["pi05"],
+    robot: ["nero", "piper"], arms: ["single", "dual"], space: ["joint", "eef"], model: ["pi05", "fastwam"],
     checkpointSource: ["outputs", "manual"],
   })) {
     if (!values.includes(config[key])) config[key] = defaults[key];
   }
+  if (config.model === "fastwam") config.rtcEnabled = false;
   const names = {nero: "NERO", piper: "Piper", single: "单臂", dual: "双臂", joint: "关节空间", eef: "EEF"};
   const option = (text, value) => new Option(text, value);
 
@@ -70,6 +72,10 @@
   window.platformSettings = () => ({...config, path: config.checkpointSource === "manual" ? config.customPath : config.checkpoint});
 
   function render() {
+    $("rtc-enabled").disabled = config.model !== "pi05";
+    $("rtc-note").textContent = config.model === "fastwam"
+      ? "FastWAM 当前使用逐段闭环预测；RTC 暂不支持。"
+      : "边执行边预测，以未执行动作衔接下一段，减少段间停顿。关闭后使用原逐段模式。";
     const summary = `${names[config.robot]} · ${names[config.arms]} · ${names[config.space]}`;
     $("scope-summary").textContent = summary;
     $("observation-title").textContent = `${names[config.robot]} · ${names[config.arms]}`;
@@ -143,6 +149,7 @@
     for (const id of ["robot", "arms", "model", "task"]) $(id).value = config[id];
     $("duration").value = config.duration;
     $("record").checked = config.record;
+    $("rtc-enabled").checked = config.rtcEnabled;
     $("dataset-name").value = config.datasetName;
     $("output-dir").value = config.outputDir;
     populateCheckpoints();
@@ -152,6 +159,8 @@
   function change(key, value) {
     config[key] = value;
     if (key === "model") {
+      if (value === "fastwam") config.rtcEnabled = false;
+      $("rtc-enabled").checked = config.rtcEnabled;
       config.checkpoint = "";
       config.customPath = "";
       manualCheckpoint = null;
@@ -178,6 +187,7 @@
     change("duration", Number.isFinite(value) ? value : 60);
   });
   $("record").addEventListener("change", () => change("record", $("record").checked));
+  $("rtc-enabled").addEventListener("change", () => change("rtcEnabled", $("rtc-enabled").checked));
   for (const button of document.querySelectorAll("[data-space]")) {
     button.addEventListener("click", () => change("space", button.dataset.space));
   }

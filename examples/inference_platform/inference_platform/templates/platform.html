@@ -63,7 +63,7 @@
         </div>
         <p id="space-description" class="field-note">模型输出末端位置、姿态和夹爪动作。</p>
         <label for="model">基座模型</label>
-        <select id="model"><option value="pi05">π0.5 · LeRobot</option><option value="openwam" disabled>OpenWAM · 暂不接入</option></select>
+        <select id="model"><option value="pi05">π0.5 · LeRobot</option><option value="fastwam">FastWAM · LeRobot</option><option value="openwam" disabled>OpenWAM · 暂不接入</option></select>
         <label for="checkpoint-source">Checkpoint 来源</label>
         <select id="checkpoint-source">
           <option value="outputs">扫描 outputs 文件夹</option>
@@ -116,6 +116,8 @@
         <textarea id="task" rows="4" placeholder="例如：pick up the black thing into the box"></textarea>
         <label for="duration">单集测试时长（秒）</label>
         <input id="duration" type="number" min="1" max="600" step="1" inputmode="numeric" value="60">
+        <label class="switch-row" for="rtc-enabled"><span>RTC 连续推理</span><input id="rtc-enabled" type="checkbox" role="switch" checked><span class="switch-track" aria-hidden="true"></span></label>
+        <p id="rtc-note" class="field-note">边执行边预测，以未执行动作衔接下一段，减少段间停顿。关闭后使用原逐段模式。</p>
         <div class="task-summary"><span>单集测试</span><strong>按时长闭环运行，到点自动停止</strong></div>
         <div class="task-summary"><span>持续执行</span><strong>闭环运行，直到手动停止</strong></div>
       </section>

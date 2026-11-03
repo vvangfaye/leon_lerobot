@@ -1,4 +1,4 @@
-"""π0.5 lifecycle, closed-loop execution and cancellation, independent of HTTP."""
+"""Policy lifecycle, closed-loop execution and cancellation, independent of HTTP."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from .jog import JogJob, JogStopped
 from .motion import home_target, plan
 from .policy import PolicyProcess
 from .recording import Recording, output_path
+from .rtc import RTCOptions, run_rtc
 
 
 class InferenceRuntime:
@@ -33,7 +34,7 @@ class InferenceRuntime:
         self.job = None
         self.thread = None
         self.load_cancel = threading.Event()
-        self.model_state, self.message = "empty", "选择 checkpoint 后即可加载 π0.5；执行前确认本次使用的设备"
+        self.model_state, self.message = "empty", "选择 checkpoint 后即可加载模型；执行前确认本次使用的设备"
         self.device, self.record_path = "", ""
         self.inference_ms, self.chunks, self.started = None, 0, 0.0
         self.elapsed = 0.0
@@ -41,6 +42,12 @@ class InferenceRuntime:
         self.recorder = None
         self.arms, self.cameras = {}, {}
         self.closed = False
+        self.rtc_stats = {"enabled": False}
+        self._rtc_executor = None
+        self._rtc_future = None
+        self.rtc_warmup_ms = []
+        self._load_rtc_options = RTCOptions()
+        self._load_task = ""
 
     def status(self) -> dict:
         with self.lock:
@@ -50,6 +57,7 @@ class InferenceRuntime:
                 "revision": self.revision,
                 "model_state": self.model_state,
                 "checkpoint": str(self.contract.path) if self.contract else "",
+                "model": self.contract.model_type if self.contract else None,
                 "config": self.contract.config if self.contract else None,
                 "device": self.device,
                 "message": job["message"] if job and job["active"] else self.message,
@@ -61,6 +69,8 @@ class InferenceRuntime:
                 else self.elapsed,
                 "record_path": self.record_path,
                 "record_frames": self.recorder.frames if self.recorder else 0,
+                "rtc": dict(self.rtc_stats),
+                "rtc_warmup_ms": list(self.rtc_warmup_ms),
             }
 
     def _idle(self, revision: str) -> None:
@@ -75,15 +85,19 @@ class InferenceRuntime:
         with self.lock:
             self._idle(revision)
             contract = Contract(settings["path"], settings)
+            rtc_options = self._rtc_options(settings, contract)
             with self.manager.lock:
                 self.manager._jog_idle()
             # Loading weights neither opens hardware nor sends commands.
             # Bind only at execution, where the current roles and feedback matter.
             self.contract = contract
+            self._load_rtc_options = rtc_options
+            self._load_task = settings.get("task", "warmup")
+            self.rtc_warmup_ms = []
             self.revision, self.model_state = uuid4().hex, "loading"
-            self.message = "正在本机加载 π0.5 权重与 checkpoint 预处理器…"
+            self.message = f"正在本机加载 {contract.model_type} 权重与 checkpoint 预处理器…"
             self.load_cancel.clear()
-            self.thread = threading.Thread(target=self._load, daemon=True, name="pi05-load")
+            self.thread = threading.Thread(target=self._load, daemon=True, name="policy-load")
             self.thread.start()
 
     def _load(self) -> None:
@@ -96,10 +110,34 @@ class InferenceRuntime:
                 self.policy.close()
             self.policy = self.policy_factory(str(self.contract.path))
             result = self.policy.load(check)
+            if self._load_rtc_options.enabled or self.contract.model_type == "fastwam":
+                # Warm both the ordinary first chunk and the guided continuation
+                # without connecting or sending anything to hardware.
+                self.message = "正在预热模型，不向机械臂发送动作…"
+                images = {
+                    key: np.zeros((*self.contract.raw["input_features"][key]["shape"][1:], 3), dtype=np.uint8)
+                    for key in self.contract.cameras
+                }
+                request = {"op": "predict", "state": np.zeros(self.contract.dim, dtype=np.float32),
+                           "images": images, "task": self._load_task}
+                if self._load_rtc_options.enabled:
+                    request.update(rtc=self._load_rtc_options.policy_config(), prefix=None, inference_delay=0)
+                first = self.policy.call(request, check)
+                actions = self.contract.actions(first["actions"])
+                if self._load_rtc_options.enabled:
+                    prefix = actions[:self._load_rtc_options.horizon]
+                    second = self.policy.call(
+                        {**request, "prefix": prefix, "inference_delay": min(3, len(prefix))}, check
+                    )
+                    self.contract.actions(second["actions"])
+                    self.rtc_warmup_ms = [first["inference_ms"], second["inference_ms"]]
+                else:
+                    self.inference_ms = first["inference_ms"]
+                self.policy.call({"op": "reset"}, check)
             check()
             with self.lock:
                 self.model_state, self.device = "ready", result["device"]
-                self.message = "π0.5 已加载；单集测试按时长运行，持续执行直到手动停止"
+                self.message = f"{self.contract.model_type} 已加载；单集测试按时长运行，持续执行直到手动停止"
         except Exception as exc:
             if self.policy:
                 self.policy.close()
@@ -119,6 +157,14 @@ class InferenceRuntime:
             self.model_state, self.message = "empty", "模型已卸载，显存已释放"
             self.revision = uuid4().hex
 
+    @staticmethod
+    def _rtc_options(settings: dict, contract: Contract) -> RTCOptions:
+        if contract.model_type != "pi05" and settings.get("rtcEnabled"):
+            raise ValueError("FastWAM 尚未接入 RTC，请关闭 RTC 后运行")
+        return RTCOptions.from_settings(
+            settings, contract.steps, int(contract.raw.get("rtc_training_max_delay", 0))
+        )
+
     def start(self, kind: str, settings: dict, revision: str) -> None:
         if kind not in ("single", "continuous", "home"):
             raise ValueError("未知执行模式")
@@ -133,11 +179,14 @@ class InferenceRuntime:
                     raise ValueError("请先核对并确认设备用途")
                 if kind != "home":
                     if self.model_state != "ready" or self.policy is None:
-                        raise ValueError("请先加载 π0.5")
+                        raise ValueError("请先加载模型")
+                    self._rtc_options(settings, self.contract)
                     if settings.get("path") != str(self.contract.path) or any(
                         settings.get(k) != v for k, v in self.contract.config.items()
                     ):
                         raise ValueError("页面配置与已加载模型不一致，请重新加载")
+                    if settings.get("model", "pi05") != self.contract.model_type:
+                        raise ValueError("页面模型类型已变化，请重新加载")
                     if not isinstance(settings.get("task"), str) or not settings["task"].strip():
                         raise ValueError("请填写任务指令")
                     if kind == "single":
@@ -165,12 +214,13 @@ class InferenceRuntime:
                 self.inference_ms, self.chunks, self.started = None, 0, time.monotonic()
                 self.last_action, self.commanded = None, False
                 self.recorder, self.record_path = None, ""
+                self.rtc_stats = {"enabled": False}
                 self.message = "等待页面确认执行请求…"
                 self.thread = threading.Thread(
                     target=self._run,
                     args=(kind, copy.deepcopy(settings), status["config"]["robot"]),
                     daemon=True,
-                    name="pi05-execution",
+                    name="policy-execution",
                 )
                 self.thread.start()
 
@@ -345,40 +395,41 @@ class InferenceRuntime:
                         settings, self.contract, self._capture, self._record_command
                     )
                     self.record_path = str(self.recorder.path)
-                while True:
-                    self._check()
-                    self.job.progress("正在读取观测并运行 π0.5 预测…")
-                    observation = self._capture()
-                    predicting = True
-                    result = self.policy.call(
-                        {
-                            "op": "predict",
-                            "state": observation["state"],
-                            "images": observation["images"],
-                            "task": settings["task"],
-                        },
-                        self._check_policy,
-                    )
-                    predicting = False
-                    self._check()
-                    self.inference_ms = result["inference_ms"]
-                    current = np.asarray([v["point"] for v in self._commands("read").values()])
-                    if time.monotonic() - observation["captured"] > 10:
-                        raise ValueError("预测耗时过长，观测已过期")
-                    actions = self.contract.actions(result["actions"])
-                    points, durations, warnings = plan(actions, self.contract, current, limits, self._check)
-                    if warnings:
-                        clamped.extend(warnings)
-                    if time.monotonic() - observation["captured"] > 10:
-                        raise ValueError("规划耗时过长，观测已过期")
-                    if self.recorder:
-                        self.recorder.chunk(actions, self.inference_ms)
-                    self.job.progress(f"正在低速执行第 {self.chunks + 1} 段 · {len(actions)} 个动作")
-                    self._execute(points, durations)
-                    self.chunks += 1
-                    if kind == "single" and time.monotonic() - self.started >= settings.get("duration", 60.0):
-                        message = f"单集测试完成，共执行 {self.chunks} 段，机械臂保持当前位置"
-                        break
+                rtc_options = self._rtc_options(settings, self.contract)
+                if rtc_options.enabled:
+                    clamped.extend(run_rtc(self, kind, settings, limits, rtc_options))
+                    message = f"RTC 测试完成，共更新 {self.chunks} 段，机械臂保持当前位置"
+                else:
+                    while True:
+                        self._check()
+                        self.job.progress(f"正在读取观测并运行 {self.contract.model_type} 预测…")
+                        observation = self._capture()
+                        predicting = True
+                        result = self.policy.call(
+                            {"op": "predict", "state": observation["state"],
+                             "images": observation["images"], "task": settings["task"]},
+                            self._check_policy,
+                        )
+                        predicting = False
+                        self._check()
+                        self.inference_ms = result["inference_ms"]
+                        current = np.asarray([v["point"] for v in self._commands("read").values()])
+                        if time.monotonic() - observation["captured"] > 10:
+                            raise ValueError("预测耗时过长，观测已过期")
+                        actions = self.contract.actions(result["actions"])
+                        points, durations, warnings = plan(actions, self.contract, current, limits, self._check)
+                        if warnings:
+                            clamped.extend(warnings)
+                        if time.monotonic() - observation["captured"] > 10:
+                            raise ValueError("规划耗时过长，观测已过期")
+                        if self.recorder:
+                            self.recorder.chunk(actions, self.inference_ms)
+                        self.job.progress(f"正在低速执行第 {self.chunks + 1} 段 · {len(actions)} 个动作")
+                        self._execute(points, durations)
+                        self.chunks += 1
+                        if kind == "single" and time.monotonic() - self.started >= settings.get("duration", 60.0):
+                            message = f"单集测试完成，共执行 {self.chunks} 段，机械臂保持当前位置"
+                            break
         except JogStopped as exc:
             phase, message = "stopped", str(exc)
         except Exception as exc:
@@ -394,6 +445,22 @@ class InferenceRuntime:
                 except Exception as exc:
                     recovery = True
                     phase, message = "error", f"{message}；停止未确认：{exc}；请现场检查后重启平台"
+            # Stop hardware before waiting for an outstanding background RPC.
+            # No late response can be consumed by a later execution session.
+            if self._rtc_future is not None:
+                try:
+                    self._rtc_future.result(timeout=0.25)
+                except FutureTimeout:
+                    self.policy.close()
+                    self.policy = None
+                    self.model_state = "empty"
+                    message += "；未完成的 RTC 预测已终止，请重新加载模型"
+                except Exception:
+                    pass
+                self._rtc_future = None
+            if self._rtc_executor is not None:
+                self._rtc_executor.shutdown(wait=False, cancel_futures=True)
+                self._rtc_executor = None
             if predicting:
                 self.policy.close()
                 self.policy = None
@@ -402,6 +469,7 @@ class InferenceRuntime:
             with self.lock:
                 self.commanded = False
             if self.recorder:
+                self.recorder.manifest["rtc"] = dict(self.rtc_stats)
                 self.job.progress("机械臂已停止，正在保存本次视频与数据…")
                 try:
                     self.recorder.finish(phase, message)

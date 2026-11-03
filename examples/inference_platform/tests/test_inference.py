@@ -362,6 +362,28 @@ class RuntimeTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_fastwam_entry_is_interpolated_but_interior_jumps_still_rejected(self):
+        from types import SimpleNamespace
+
+        contract = SimpleNamespace(
+            count=7, model_type="fastwam", config={"space": "joint"}, actions=lambda a: a
+        )
+        initial = np.zeros((1, 8))
+        limits = np.array([[[-1, 1]] * 7])
+        actions = np.zeros((3, 8))
+        actions[:, 0] = [0.30, 0.32, 0.34]
+        points, times, _ = plan(actions, contract, initial, limits, lambda: None)
+        np.testing.assert_allclose(points[1:, 0], actions)
+        self.assertAlmostEqual(times[0], 1.2)
+        velocities = np.abs(np.diff(points, axis=0))[..., :-1] / times[:, None, None]
+        self.assertLessEqual(velocities.max(), 0.25 + 1e-8)
+        actions[1, 0] = 0.60
+        with self.assertRaisesRegex(ValueError, "0.20"):
+            plan(actions, contract, initial, limits, lambda: None)
+        actions[:, 0] = [0.51, 0.52, 0.53]
+        with self.assertRaisesRegex(ValueError, "首点.*0.50"):
+            plan(actions, contract, initial, limits, lambda: None)
+
     def test_joint_trajectory_limits_finite_and_step(self):
         from types import SimpleNamespace
 

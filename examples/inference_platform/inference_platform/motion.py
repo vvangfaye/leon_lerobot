@@ -168,14 +168,22 @@ def plan(
                 warnings.append(f"夹爪 {grip:.4f} m 越界，钳制到 {clamped:.4f} m")
                 grip = clamped
             # 模型外推越界：像 pyAgxArm SDK 的 clamp_joints 一样逐关节钳制到限位，而不是报错拒绝。
-            # 钳制只作用在越界关节，钳制值落在限位边界，仍受相邻步 0.20 rad 与速度上限约束。
+            # 钳制只作用在越界关节；下方分别检查段首衔接和段内跳变，执行时仍限速。
             overflow = (q < limits[index, :, 0]) | (q > limits[index, :, 1])
             if np.any(overflow):
                 for j in np.flatnonzero(overflow):
                     bound = limits[index, j, 0] if q[j] < limits[index, j, 0] else limits[index, j, 1]
                     warnings.append(f"J{j + 1} {math.degrees(q[j]):.2f}° 越界，钳制到 {math.degrees(bound):.2f}°")
                 q = np.clip(q, limits[index, :, 0], limits[index, :, 1])
-            if np.max(np.abs(q - points[-1][index, :-1])) > 0.20:
+            # FastWAM's first prediction can be offset from the current feedback.
+            # Connect that endpoint using the same velocity-limited interpolation,
+            # allowing at most 2 s of joint travel at 0.25 rad/s. Do not relax
+            # the check between predicted points or alter PI05's existing bound.
+            entry = len(points) == 1 and getattr(contract, "model_type", "pi05") == "fastwam"
+            max_delta = 0.50 if entry else 0.20
+            if np.max(np.abs(q - points[-1][index, :-1])) > max_delta:
+                if entry:
+                    raise ValueError("FastWAM 首点距当前位置超过 0.50 rad，未执行本段；请核对任务起点")
                 raise ValueError("动作相邻关节变化超过 0.20 rad，未执行本段")
             targets.append(np.r_[q, np.clip(grip, 0, 0.1)])
         points.append(np.asarray(targets))

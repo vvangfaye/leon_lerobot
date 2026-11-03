@@ -1,4 +1,4 @@
-"""Explicit π0.5 observation/action contracts; no dimension-only inference."""
+"""Explicit observation/action contracts; no dimension-only inference."""
 
 from __future__ import annotations
 
@@ -18,15 +18,37 @@ CAMERAS = {
 EEF_NAMES = ["eef_x", "eef_y", "eef_z", *[f"rot6d_col{c}_{a}" for c in (0, 1) for a in "xyz"], "gripper"]
 
 
+def checkpoint_action_names(path: Path, raw: dict) -> list | None:
+    """Recover FastWAM's channel order from its saved training dataset metadata."""
+    names = raw.get("action_feature_names")
+    if names is not None or raw.get("type") != "fastwam":
+        return names
+    training = json.loads((path / "train_config.json").read_text())
+    root = training.get("dataset", {}).get("root")
+    if not isinstance(root, str) or not Path(root).is_absolute():
+        raise ValueError("FastWAM 缺少训练数据的绝对路径，无法核对动作名称")
+    features = json.loads((Path(root) / "meta/info.json").read_text())["features"]
+    names = features["action"].get("names")
+    if not isinstance(names, list) or not names or not all(isinstance(name, str) for name in names):
+        raise ValueError("FastWAM 训练数据缺少动作名称")
+    if features["observation.state"].get("names") != names or any(
+        features[key].get("shape") != raw[section][key].get("shape")
+        for key, section in (("action", "output_features"), ("observation.state", "input_features"))
+    ):
+        raise ValueError("FastWAM 训练数据的状态/动作顺序或维数与 checkpoint 不一致")
+    return names
+
+
 class Contract:
     def __init__(self, path: str, config: dict) -> None:
         self.path = Path(path).expanduser().resolve()
         self.config = {key: config[key] for key in ("robot", "arms", "space")}
-        if config.get("model", "pi05") != "pi05":
-            raise ValueError("本阶段只支持 π0.5；OpenWAM 暂不接入")
+        self.model_type = config.get("model", "pi05")
+        if self.model_type not in ("pi05", "fastwam"):
+            raise ValueError("本平台支持 π0.5 和 FastWAM")
         self.raw = json.loads((self.path / "config.json").read_text())
-        if self.raw.get("type") != "pi05":
-            raise ValueError("请选择 π0.5 checkpoint")
+        if self.raw.get("type") != self.model_type:
+            raise ValueError("checkpoint 与所选模型类型不一致")
         self.count = {"nero": 7, "piper": 6}[config["robot"]]
         self.sides = ["left", "right"] if config["arms"] == "dual" else [""]
         base = (
@@ -34,7 +56,7 @@ class Contract:
             if config["space"] == "joint"
             else EEF_NAMES
         )
-        self.names = self.raw.get("action_feature_names")
+        self.names = checkpoint_action_names(self.path, self.raw)
         expected = [f"{side}.{name}" if side else name for side in self.sides for name in base]
         if self.names != expected:
             # Explicitly sided single-arm checkpoints retain their side contract.
@@ -50,7 +72,12 @@ class Contract:
         ] or self.raw.get("output_features", {}).get("action", {}).get("shape") != [self.dim]:
             raise ValueError("状态、动作维数与动作名称不一致")
         if self.raw.get("use_peft") or self.raw.get("rtc_config"):
-            raise ValueError("首版需要完整 π0.5 权重，暂不支持 PEFT / RTC checkpoint")
+            raise ValueError("需要完整权重，暂不支持 PEFT / RTC checkpoint")
+        if self.model_type == "fastwam":
+            if self.raw.get("n_obs_steps", 1) != 1 or self.raw.get("toggle_action_dimensions"):
+                raise ValueError("FastWAM 当前仅支持单帧观测与物理单位动作，不支持动作开关转换")
+            if self.raw.get("action_dim") != self.dim or self.raw.get("proprio_dim") != self.dim:
+                raise ValueError("FastWAM 动作与本体状态维数不一致")
         self.cameras = {}
         for key, feature in self.raw["input_features"].items():
             if key == "observation.state":
@@ -69,7 +96,8 @@ class Contract:
             if not (self.path / name).is_file():
                 raise ValueError(f"checkpoint 缺少 {name}")
         self.steps = int(self.raw.get("n_action_steps", 50))
-        if not 1 <= self.steps <= int(self.raw.get("chunk_size", 50)) <= 100:
+        horizon = self.raw.get("action_horizon") if self.model_type == "fastwam" else self.raw.get("chunk_size", 50)
+        if not 1 <= self.steps <= int(horizon) <= 100:
             raise ValueError("动作段长度必须为 1–100")
 
     def bind(self, status: dict) -> tuple[dict, dict]:

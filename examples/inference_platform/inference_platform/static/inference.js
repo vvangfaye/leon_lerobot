@@ -12,7 +12,7 @@
     const config = settings();
     const match = state.checkpoint === config.path && ["robot", "arms", "space"].every(key => state.config?.[key] === config[key]);
     $("model-tag").textContent = labels[state.model_state] || "状态未知";
-    $("runtime-model").textContent = online ? `${labels[state.model_state]}${state.device ? ` · ${state.device.toUpperCase()}` : ""}` : "服务离线";
+    $("runtime-model").textContent = online ? `${labels[state.model_state]}${state.device ? ` · ${state.device.toUpperCase()}` : ""}${state.rtc?.enabled ? " · RTC" : ""}` : "服务离线";
     $("runtime-latency").textContent = state.inference_ms == null ? "— ms" : `${state.inference_ms} ms`;
     $("runtime-chunks").textContent = state.chunks || 0;
     const seconds = Math.floor(state.elapsed || 0);
@@ -24,14 +24,15 @@
     const message = notice || (running ? state.job.message : executionHint || state.message) || "等待模型加载";
     $("inference-message").textContent = message;
     $("inference-message").title = message;
-    $("load-model").disabled = !online || busy || devices.jog?.active || devices.motion_active || !config.path || config.model !== "pi05";
-    $("load-model").textContent = state.model_state === "loading" ? "正在加载 π0.5…" : state.model_state === "ready" ? "重新加载 π0.5" : "加载 π0.5";
+    const modelLabel = config.model === "fastwam" ? "FastWAM" : "π0.5";
+    $("load-model").disabled = !online || busy || devices.jog?.active || devices.motion_active || !config.path || !["pi05", "fastwam"].includes(config.model);
+    $("load-model").textContent = state.model_state === "loading" ? `正在加载 ${modelLabel}…` : state.model_state === "ready" ? `重新加载 ${modelLabel}` : `加载 ${modelLabel}`;
     $("unload-model").disabled = !online || busy || state.model_state === "empty";
     const enabled = online && devices.online && devices.confirmed && !devices.jog?.active && !busy && !state.job?.recovery;
     $("home-motion").disabled = !enabled;
     $("single-motion").disabled = $("continuous-motion").disabled = !enabled || state.model_state !== "ready" || !match || !config.task.trim();
     $("stop-motion").disabled = !(pending || running || state.model_state === "loading" || devices.jog?.active);
-    for (const id of ["model", "checkpoint-source", "checkpoint", "choose-checkpoint", "refresh-checkpoints", "task", "record", "dataset-name", "output-dir"]) {
+    for (const id of ["model", "checkpoint-source", "checkpoint", "choose-checkpoint", "refresh-checkpoints", "task", "record", "rtc-enabled", "dataset-name", "output-dir"]) {
       // Preserve catalog's disabled state when idle; only remove our own lock.
       const node = $(id);
       if (busy && !node.dataset.executionLock) {
@@ -42,6 +43,7 @@
         delete node.dataset.executionLock;
       } else if (busy) node.disabled = true;
     }
+    if (config.model !== "pi05") $("rtc-enabled").disabled = true;
     $("record-result").hidden = !state.record_path;
     $("record-result").textContent = state.record_path ? `${running ? "本次保存目录" : "本次数据"}：${state.record_path}（${state.record_frames || 0} 帧）` : "";
     if (lastBusy !== busy) {

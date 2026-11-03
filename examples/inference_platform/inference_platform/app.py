@@ -12,6 +12,7 @@ import yaml
 from flask import Flask, Response, jsonify, render_template, request
 
 from .checkpoint_picker import DirectoryPicker
+from .contracts import checkpoint_action_names
 from .devices import DeviceManager
 from .runtime import InferenceRuntime
 
@@ -52,13 +53,13 @@ def inspect_checkpoint(directory: Path) -> dict:
     try:
         if (directory / "config.json").is_file():
             cfg = read_metadata(directory / "config.json")
-            if cfg.get("type") != "pi05":
-                raise ValueError("首版只列出 π0.5 与 OpenWAM")
-            result["model"] = "pi05"
+            if cfg.get("type") not in ("pi05", "fastwam"):
+                raise ValueError("当前支持 π0.5 与 FastWAM")
+            result["model"] = cfg["type"]
             shape = cfg.get("output_features", {}).get("action", {}).get("shape", [])
             if len(shape) == 1 and type(shape[0]) is int and shape[0] > 0:
                 result["action_dim"] = shape[0]
-            names = cfg.get("action_feature_names", [])
+            names = checkpoint_action_names(directory, cfg)
             if isinstance(names, list) and len(names) == result["action_dim"]:
                 result["space"] = action_space_from_names(names)
                 if result["space"]:
@@ -86,7 +87,7 @@ def inspect_checkpoint(directory: Path) -> dict:
             result["weights_present"] = any(path.is_file() for path in directory.glob("checkpoint_step_*.safetensors"))
         else:
             raise ValueError("未找到 config.json 或 config.yaml")
-    except (OSError, ValueError, TypeError, AttributeError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, yaml.YAMLError) as exc:
         result["error"] = str(exc)
     return result
 
