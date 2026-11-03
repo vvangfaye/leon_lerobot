@@ -135,6 +135,9 @@ def do_connect(runtime: Runtime) -> tuple[bool, str]:
         return False, "本集写入失败，已暂停续录；请保留错误信息，检查数据后重新启动"
     if runtime.state["connected"]:
         return True, "已连接"
+    # End/stop leaves cancellation set for the old worker. A newly accepted
+    # session starts with fresh flags; never clear a stop later during setup.
+    runtime.state.update(stop_requested=False, teleop_test_stop=False)
     transition_started = False
     preview_closed = False
     try:
