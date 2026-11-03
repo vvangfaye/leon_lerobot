@@ -201,9 +201,12 @@ class FastWAMConfig(PreTrainedConfig):
     model_id: str = WAN22_MODEL_ID
     tokenizer_model_id: str = WAN_T5_TOKENIZER_ID
     text_encoder_model_id: str = WAN22_DIFFUSERS_MODEL_ID
+    vae_model_id: str = WAN22_DIFFUSERS_MODEL_ID
     base_model_id: str | None = FASTWAM_BASE_MODEL_ID
     tokenizer_max_len: int = 128
     load_text_encoder: bool = True
+    text_encoder_device: str | None = None
+    text_cache_size: int = 0
     mot_checkpoint_mixed_attn: bool = False
     dtype: torch.dtype | None = torch.bfloat16
 
@@ -256,6 +259,10 @@ class FastWAMConfig(PreTrainedConfig):
             self.torch_dtype = None
 
         super().__post_init__()
+        if self.text_encoder_device not in (None, "cpu"):
+            raise ValueError("`text_encoder_device` must be None or 'cpu'.")
+        if type(self.text_cache_size) is not int or self.text_cache_size < 0:
+            raise ValueError("`text_cache_size` must be a nonnegative integer.")
         if self.dtype not in {torch.float32, torch.float16, torch.bfloat16}:
             raise ValueError(
                 f"Unsupported dtype={self.dtype!r}. Expected torch.float32, torch.float16 or torch.bfloat16."

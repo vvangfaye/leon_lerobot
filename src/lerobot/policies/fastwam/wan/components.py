@@ -112,10 +112,12 @@ def build_wan_tokenizer(*, model_id: str = WAN_T5_TOKENIZER, tokenizer_max_len: 
     return WanTokenizer(name=model_id, seq_len=int(tokenizer_max_len))
 
 
-def load_pretrained_wan_vae(*, torch_dtype: torch.dtype, device: str) -> WanVideoVAE38:
+def load_pretrained_wan_vae(
+    *, torch_dtype: torch.dtype, device: str, model_id: str = WAN22_DIFFUSERS_MODEL_ID
+) -> WanVideoVAE38:
     """Load real Wan2.2 VAE weights from the diffusers repo (offline base creation)."""
     require_package("diffusers", extra="fastwam")
-    vae = AutoencoderKLWan.from_pretrained(WAN22_DIFFUSERS_MODEL_ID, subfolder="vae", torch_dtype=torch_dtype)
+    vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch_dtype)
     return WanVideoVAE38(dtype=torch_dtype, device=device, pretrained=vae)
 
 

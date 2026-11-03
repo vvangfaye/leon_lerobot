@@ -116,7 +116,31 @@ lerobot-rollout \
 
 ### Wan Components
 
-FastWAM loads the Wan VAE, video DiT, text encoder, and tokenizer from the configured Wan model directory or Hugging Face Hub model id. LeRobot-format FastWAM checkpoints saved by `save_pretrained` also copy the local Wan component files needed by `from_pretrained`.
+FastWAM loads the video and action experts from its policy checkpoint. The frozen
+VAE and text encoder are loaded separately from the configured model directories
+or Hugging Face Hub repositories. For offline runs, set `--policy.vae_model_id`
+and `--policy.text_encoder_model_id` to a local snapshot containing the `vae/` and
+`text_encoder/` subdirectories, and `--policy.tokenizer_model_id` to its
+`tokenizer/` directory. Keep these assets available alongside saved policy weights.
+
+### Single-GPU action fine-tuning
+
+To keep the pretrained video expert fixed and train the action branch, use
+`--policy.freeze_video_expert=true --policy.loss.lambda_video=0`.
+This is action fine-tuning with a frozen world-model backbone, not joint
+video/action fine-tuning.
+
+The frozen UMT5 text encoder can remain on the CPU with
+`--policy.text_encoder_device=cpu`. Add `--policy.text_cache_size=32` to cache
+the most recent prompt batches in host memory. Identical prompts reuse their
+embeddings; different prompts remain distinct. This reduces GPU memory use
+without removing language conditioning. The first use of a prompt still pays
+the CPU encoding cost. By default, the encoder follows the policy device and
+the cache is disabled.
+
+These options reduce memory requirements but do not guarantee that every
+resolution, batch size, or action horizon fits a particular GPU. Measure an
+actual forward/backward update before starting a long run.
 
 ### Attention Backend
 

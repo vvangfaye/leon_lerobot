@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import OrderedDict
 from collections.abc import Sequence
 from typing import Any
 
@@ -848,6 +849,8 @@ class FastWAM(torch.nn.Module):
         action_num_train_timesteps: int = 1000,
         loss_lambda_video: float = 1.0,
         loss_lambda_action: float = 1.0,
+        text_encoder_device: str | None = None,
+        text_cache_size: int = 0,
     ):
         super().__init__()
         self.mot = mot
@@ -911,6 +914,11 @@ class FastWAM(torch.nn.Module):
         self.torch_dtype = torch_dtype
         self.loss_lambda_video = float(loss_lambda_video)
         self.loss_lambda_action = float(loss_lambda_action)
+        self.text_encoder_device = text_encoder_device
+        self.text_cache_size = text_cache_size
+        self._text_cache: OrderedDict[tuple[str, ...], tuple[torch.Tensor, torch.Tensor]] = OrderedDict()
+        if text_encoder is not None and text_cache_size:
+            text_encoder.eval()
 
         self.to(self.device)
 
@@ -1006,7 +1014,10 @@ class FastWAM(torch.nn.Module):
         super()._apply(fn, *args, **kwargs)
         self.vae._apply(fn)
         if self.text_encoder is not None:
-            self.text_encoder._apply(fn)
+            if self.text_encoder_device is None:
+                self.text_encoder._apply(fn)
+            else:
+                self.text_encoder.to(device=self.text_encoder_device)
         return self
 
     @staticmethod
@@ -1026,9 +1037,16 @@ class FastWAM(torch.nn.Module):
                 "Prompt encoding requires loaded text encoder/tokenizer. "
                 "Set `load_text_encoder=true` or provide precomputed `context/context_mask`."
             )
+        cache_key = (prompt,) if isinstance(prompt, str) else tuple(prompt)
+        if self.text_cache_size and cache_key in self._text_cache:
+            self._text_cache.move_to_end(cache_key)
+            embedding, mask = self._text_cache[cache_key]
+            return embedding.to(self.device).clone(), mask.to(self.device).clone()
         ids, mask = self.tokenizer(prompt, return_mask=True, add_special_tokens=True)
-        ids = ids.to(self.device)
-        mask = mask.to(self.device, dtype=torch.bool)
+        parameter = next(self.text_encoder.parameters(), None)
+        encoder_device = parameter.device if parameter is not None else self.device
+        ids = ids.to(encoder_device)
+        mask = mask.to(encoder_device, dtype=torch.bool)
         prompt_emb = self.text_encoder(ids, mask)
         seq_lens = mask.gt(0).sum(dim=1).long()
         for i, v in enumerate(seq_lens):
@@ -1036,7 +1054,11 @@ class FastWAM(torch.nn.Module):
         # Match FastWAM/Wan2.2 context semantics: padding embeddings are zeroed,
         # while cross-attention still sees a fixed-length context.
         mask = torch.ones_like(mask)
-        return prompt_emb.to(device=self.device), mask
+        if self.text_cache_size:
+            self._text_cache[cache_key] = (prompt_emb.detach().cpu().clone(), mask.cpu().clone())
+            if len(self._text_cache) > self.text_cache_size:
+                self._text_cache.popitem(last=False)
+        return prompt_emb.to(device=self.device), mask.to(device=self.device)
 
     def _append_proprio_to_context(
         self,

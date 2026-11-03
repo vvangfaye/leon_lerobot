@@ -277,7 +277,9 @@ class FastWAMPolicy(PreTrainedPolicy):
         )
         text_encoder = (
             load_pretrained_wan_text_encoder(
-                model_id=config.text_encoder_model_id, torch_dtype=dtype, device=device
+                model_id=config.text_encoder_model_id,
+                torch_dtype=dtype,
+                device=config.text_encoder_device or device,
             )
             if config.load_text_encoder
             else None
@@ -286,7 +288,7 @@ class FastWAMPolicy(PreTrainedPolicy):
             video_expert=video_expert,
             action_expert=action_expert,
             mot=mot,
-            vae=load_pretrained_wan_vae(torch_dtype=dtype, device=device),
+            vae=load_pretrained_wan_vae(model_id=config.vae_model_id, torch_dtype=dtype, device=device),
             text_encoder=text_encoder,
             tokenizer=build_wan_tokenizer(
                 model_id=config.tokenizer_model_id, tokenizer_max_len=config.tokenizer_max_len
@@ -303,6 +305,8 @@ class FastWAMPolicy(PreTrainedPolicy):
             action_num_train_timesteps=int(config.action_scheduler["num_train_timesteps"]),
             loss_lambda_video=float(config.loss["lambda_video"]),
             loss_lambda_action=float(config.loss["lambda_action"]),
+            text_encoder_device=config.text_encoder_device,
+            text_cache_size=config.text_cache_size,
         )
 
 
